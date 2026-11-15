@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Viewer MPR</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; font: 13px system-ui, sans-serif; background: transparent; }
+  #wrap { position: relative; display: flex; width: 100%; height: 800px; background: #000; color: #eee; }
+  #panel { flex: 0 0 236px; box-sizing: border-box; padding: 8px 10px; overflow-y: auto; background: #1c1c1e; }
+  #panel hr { border: 0; border-top: 1px solid #555; margin: 8px 0; }
+  #panel label { display: block; margin: 4px 0; }
+  #panel input[type=range] { width: 100%; }
+  #panel select { width: 100%; background: #3a3a3e; color: #eee; border: 1px solid #666; border-radius: 4px; padding: 3px; }
+  #grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px; min-width: 0; background: #333; }
+  #grid.hasmax { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  #grid.hasmax .pane:not(.max) { display: none; }
+  .pane { position: relative; background: #000; overflow: hidden; min-width: 0; min-height: 0; }
+  .pane canvas { position: absolute; inset: 0; width: 100%; height: 100%; outline: none; touch-action: none; }
+  .hdr { position: absolute; top: 3px; left: 6px; z-index: 2; font-size: 12px; color: #ffd24d; cursor: pointer; user-select: none; text-shadow: 0 0 3px #000; }
+  .o { position: absolute; z-index: 2; color: #ffd24d; font-size: 13px; font-weight: 600; pointer-events: none; text-shadow: 0 0 3px #000; }
+  .o.l { left: 5px; top: 50%; } .o.r { right: 5px; top: 50%; } .o.t { top: 3px; left: 50%; } .o.b { bottom: 3px; left: 50%; }
+  .row { display: flex; gap: 4px; margin: 4px 0; }
+  .row button { flex: 1; }
+  .row.wrap { flex-wrap: wrap; }
+  .row.wrap button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; }
+  button { background: #3a3a3e; color: #eee; border: 1px solid #666; border-radius: 5px; padding: 4px 6px; cursor: pointer; font-size: 12px; }
+  button:hover { background: #4a4a50; }
+  button.on { background: #2f6fed; border-color: #2f6fed; }
+  .sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; border: 1px solid #fff8; }
+  .cls { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .cls input[type=color] { width: 26px; height: 20px; padding: 0; border: 0; background: none; }
+  .small { font-size: 11.5px; color: #bbb; margin-top: 6px; line-height: 1.35; }
+  h4 { margin: 4px 0 2px; font-size: 12px; color: #9ab; text-transform: uppercase; letter-spacing: .04em; }
+  #msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: #ddd; padding: 30px; font-size: 14px; pointer-events: none; z-index: 5; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="panel">
+    <div class="row" id="modes">
+      <button data-mode="navigate" class="on" title="Raccourci : N">Navigation</button>
+      <button data-mode="paint" title="Raccourci : B">Pinceau</button>
+      <button data-mode="erase" title="Raccourci : E">Gomme</button>
+    </div>
+    <div id="edit">
+      <label>Taille : <span id="sizeVal">3</span> mm <input id="size" type="range" min="0.5" max="20" step="0.5" value="3"></label>
+      <label><input id="sphere" type="checkbox"> Pinceau sphérique (3D)</label>
+      <div class="small">Zone peignable</div>
+      <select id="zone">
+        <option value="aneurysm" selected>Anévrisme et blebs</option>
+        <option value="mask">Tout le masque</option>
+        <option value="everywhere">Partout (fond compris)</option>
+      </select>
+      <div class="small">Couleur du pinceau (touches 1-9)</div>
+      <div class="row wrap" id="brushLabels"></div>
+      <button id="addBleb" style="width:100%">+ Nouveau bleb</button>
+      <label><input id="eraseSel" type="checkbox"> Gomme : seulement le bleb sélectionné</label>
+      <div class="row"><button id="undo" title="Ctrl+Z">Annuler</button><button id="reset">Réinitialiser</button></div>
+      <div id="stats" class="small"></div>
+    </div>
+    <hr>
+    <h4>Affichage</h4>
+    <div id="classes"></div>
+    <label>Opacité de la segmentation <input id="alpha" type="range" min="0" max="100" value="45"></label>
+    <label>Niveau <input id="wlc" type="range" min="0" max="255" value="128"></label>
+    <label>Fenêtre <input id="wlw" type="range" min="1" max="255" value="255"></label>
+    <div class="row"><button id="wlAuto">Contraste auto</button><button id="home">Réinitialiser les vues</button></div>
+    <label><input id="auto3d" type="checkbox" checked> Actualiser la 3D après chaque trait</label>
+    <div class="row"><button id="refresh3d">Actualiser la 3D</button><button id="full">Plein écran</button></div>
+    <div id="help" class="small"></div>
+    <div id="ver" class="small"></div>
+  </div>
+  <div id="grid">
+    <div class="pane" id="pane-axial"><div class="hdr" id="h-axial"></div><canvas id="c-axial"></canvas>
+      <div class="o l">D</div><div class="o r">G</div><div class="o t">A</div><div class="o b">P</div></div>
+    <div class="pane" id="pane-coronal"><div class="hdr" id="h-coronal"></div><canvas id="c-coronal"></canvas>
+      <div class="o l">D</div><div class="o r">G</div><div class="o t">S</div><div class="o b">I</div></div>
+    <div class="pane" id="pane-sagittal"><div class="hdr" id="h-sagittal"></div><canvas id="c-sagittal"></canvas>
+      <div class="o l">A</div><div class="o r">P</div><div class="o t">S</div><div class="o b">I</div></div>
+    <div class="pane" id="pane-3d"><div class="hdr" id="h-3d">3D</div></div>
+  </div>
+  <div id="msg">Chargement…</div>
+</div>
+
+<script src="mpr_core.js"></script>
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Protocole des composants Streamlit (sans dépendance)
+// ---------------------------------------------------------------------------
+const ST = {
+  post(type, extra) { window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type }, extra || {}), "*"); },
+  ready() { this.post("streamlit:componentReady", { apiVersion: 1 }); },
+  height(h) { this.post("streamlit:setFrameHeight", { height: h }); },
+  value(v) { this.post("streamlit:setComponentValue", { value: v, dataType: "json" }); },
+};
+const $ = (id) => document.getElementById(id);
+function showMessage(t) { const m = $("msg"); m.textContent = t || ""; m.style.display = t ? "flex" : "none"; }
+
+// three.js : fichiers locaux (dossier du composant) puis CDN. La 3D est facultative : les coupes 2D marchent sans.
+const THREE_URLS = ["three.min.js", "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js", "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"];
+const ORBIT_URLS = ["OrbitControls.js", "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"];
+function loadScript(urls) {
+  return new Promise((resolve, reject) => {
+    let i = 0;
+    (function next() {
+      if (i >= urls.length) return reject(new Error("script introuvable : " + urls[urls.length - 1]));
+      const s = document.createElement("script");
+      s.src = urls[i++]; s.onload = resolve; s.onerror = () => { s.remove(); next(); };
+      document.head.appendChild(s);
+    })();
+  });
+}
+let libsPromise = null;
+function loadLibs() { if (!libsPromise) libsPromise = loadScript(THREE_URLS).then(() => loadScript(ORBIT_URLS)); return libsPromise; }
+
+// ---------------------------------------------------------------------------
+let S = null, currentSceneId = null;
+const PLANES = ["axial", "coronal", "sagittal"];
+
+async function build(args) {
+  if (S) S.teardown();
+  const BLEB = args.bleb_label, PARENT = args.parent_label, editable = !!args.editable;
+  const MAXB = args.max_bleb_labels || 8;
+  const PALETTE = args.bleb_palette || ["#ffd700", "#00e5ff", "#ff4dd2", "#7cfc00", "#ff8c00", "#b388ff", "#ff5252", "#40e0b0"];
+  const H = args.height || 800;
+  $("wrap").style.height = H + "px";
+  ST.height(H);
+  showMessage("Décompression des volumes…");
+
+  const labelsBytes = await MPR.gunzip(args.labels_gz);
+  const imageBytes = args.image_gz ? await MPR.gunzip(args.image_gz) : null;
+  const [nx, ny, nz] = args.dims;
+  if (labelsBytes.length !== nx * ny * nz || (imageBytes && imageBytes.length !== labelsBytes.length)) {
+    showMessage("Volumes incohérents : dimensions " + args.dims.join("×") + " ≠ " + labelsBytes.length + " voxels.");
+    return;
+  }
+  const v = MPR.createVol(args.dims, args.spacing, imageBytes, labelsBytes, { bleb: BLEB, parent: PARENT });
+  const voxMm3 = v.sx * v.sy * v.sz;
+  const cleanups = [];
+  const on = (el, ev, fn, opt) => { el.addEventListener(ev, fn, opt); cleanups.push(() => el.removeEventListener(ev, fn, opt)); };
+
+  // --- classes (couleur / visibilité) ----------------------------------------------------------
+  const hexToRgb = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const classes = {};
+  for (const c of args.classes) classes[c.id] = { name: c.name, hex: c.color, visible: true };
+  const colors256 = new Array(256).fill(null);
+  const fallbackRgb = [153, 153, 153];
+  function rebuildColors() {
+    colors256.fill(null);
+    for (const id in classes) if (classes[id].visible) colors256[id] = hexToRgb(classes[id].hex);
+  }
+  rebuildColors();
+  function ensureClass(id) {
+    if (!classes[id]) classes[id] = { name: "Bleb " + (id - BLEB + 1), hex: PALETTE[(id - BLEB) % PALETTE.length], visible: true };
+    rebuildColors();
+    return classes[id];
+  }
+  const blebIds = () => Object.keys(classes).map(Number).filter((id) => id >= BLEB).sort((a, b) => a - b);
+  let brushLabel = blebIds().length ? blebIds()[0] : BLEB;
+
+  // --- état ---------------------------------------------------------------------------------------
+  const cur = (args.center || [nx >> 1, ny >> 1, nz >> 1]).slice();
+  let mode = "navigate", drag = null, hint = "", hoverPlane = null;
+  let wl = { center: 128, width: 255 }, lut = MPR.makeLut(wl.center, wl.width), alpha = 0.45;
+  const panes = {};
+  for (const pl of PLANES) {
+    const canvas = $("c-" + pl), off = document.createElement("canvas");
+    const info = MPR.planeInfo(pl, v);
+    off.width = info.w; off.height = info.h;
+    const offCtx = off.getContext("2d");
+    panes[pl] = { plane: pl, canvas, ctx: canvas.getContext("2d"), off, offCtx, img: offCtx.createImageData(info.w, info.h),
+      info, wrap: $("pane-" + pl), hdr: $("h-" + pl), view: { zoom: 1, px: 0, py: 0 }, cw: 300, ch: 300, dpr: 1, mouse: null };
+  }
+
+  // --- rendu 2D --------------------------------------------------------------------------------------
+  const sizeEl = $("size"), sphereEl = $("sphere"), zoneEl = $("zone"), eraseSelEl = $("eraseSel");
+  const radiusMm = () => parseFloat(sizeEl.value);
+  function layout(p) {
+    const { w, h, psx, psy } = p.info;
+    const fit = Math.min(p.cw / (w * psx), p.ch / (h * psy)) * 0.98;
+    const scale = fit * p.view.zoom;
+    p.ppx = scale * psx; p.ppy = scale * psy; p.mm = scale;
+    p.ox = p.cw / 2 + p.view.px - (w * p.ppx) / 2; p.oy = p.ch / 2 + p.view.py - (h * p.ppy) / 2;
+  }
+  function drawPlane(pl) {
+    const p = panes[pl];
+    layout(p);
+    MPR.renderSlice(pl, v, cur, v.image, v.labels, lut, colors256, alpha, p.img.data);
+    p.offCtx.putImageData(p.img, 0, 0);
+    const ctx = p.ctx, { w, h } = p.info;
+    ctx.setTransform(p.dpr, 0, 0, p.dpr, 0, 0);
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, p.cw, p.ch);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(p.off, 0, 0, w, h, p.ox, p.oy, w * p.ppx, h * p.ppy);
+    // réticule : position courante dans les deux autres plans
+    const [c, r] = MPR.voxelToPixel(pl, v, cur[0], cur[1], cur[2]);
+    const cx = p.ox + (c + 0.5) * p.ppx, cy = p.oy + (r + 0.5) * p.ppy;
+    ctx.strokeStyle = "rgba(255,210,77,0.8)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx, p.oy); ctx.lineTo(cx, p.oy + h * p.ppy); ctx.moveTo(p.ox, cy); ctx.lineTo(p.ox + w * p.ppx, cy); ctx.stroke();
+    // curseur du pinceau
+    if (mode !== "navigate" && p.mouse && hoverPlane === pl) {
+      ctx.strokeStyle = mode === "erase" ? "#ff5050" : (classes[brushLabel] ? classes[brushLabel].hex : "#fff");
+      ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p.mouse.px, p.mouse.py, Math.max(1.5, radiusMm() * p.mm), 0, Math.PI * 2); ctx.stroke();
+    }
+    const fixed = p.info.fixed, n = [v.nx, v.ny, v.nz][fixed];
+    p.hdr.textContent = { axial: "Axiale", coronal: "Coronale", sagittal: "Sagittale" }[pl] + " · " + (cur[fixed] + 1) + "/" + n;
+  }
+  let drawPending = false;
+  function requestDraw() {
+    if (drawPending) return;
+    drawPending = true;
+    requestAnimationFrame(() => { drawPending = false; for (const pl of PLANES) drawPlane(pl); render3D(); });
+  }
+  function resizePanes() {
+    for (const pl of PLANES) {
+      const p = panes[pl], r = p.wrap.getBoundingClientRect();
+      p.cw = Math.max(50, r.width); p.ch = Math.max(50, r.height); p.dpr = window.devicePixelRatio || 1;
+      p.canvas.width = Math.round(p.cw * p.dpr); p.canvas.height = Math.round(p.ch * p.dpr);
+    }
+    resize3D(); requestDraw();
+  }
+
+  // --- statistiques ----------------------------------------------------------------------------------------
+  const initCounts = MPR.countByLabel(v.init, BLEB);
+  function updateStats() {
+    const curC = MPR.countByLabel(v.labels, BLEB);
+    const ids = Array.from(new Set(Object.keys(curC).concat(Object.keys(initCounts)))).map(Number).sort((a, b) => a - b);
+    const lines = ids.map((id) => (classes[id] ? classes[id].name : "Label " + id) + " : " + (curC[id] || 0) + " voxels (" +
+      ((curC[id] || 0) * voxMm3).toFixed(1) + " mm³) — initial : " + (initCounts[id] || 0));
+    const b = classes[brushLabel];
+    $("stats").style.whiteSpace = "pre-wrap";
+    $("stats").textContent = (editable && b ? "Pinceau : " + b.name + " (label " + brushLabel + ")\n" : "") +
+      (lines.length ? lines.join("\n") : "Aucun bleb") + (hint ? "\n⚠ " + hint : "");
+  }
+
+  // --- 3D (three.js, facultatif) ------------------------------------------------------------------------------------
+  let three = null;
+  function init3D() {
+    if (typeof THREE === "undefined" || typeof THREE.OrbitControls === "undefined") return;
+    const host = $("pane-3d");
+    const scene = new THREE.Scene(); scene.background = new THREE.Color(0x111111);
+    const center = new THREE.Vector3((v.nx * v.sx) / 2, (v.ny * v.sy) / 2, (v.nz * v.sz) / 2);
+    const diag = Math.hypot(v.nx * v.sx, v.ny * v.sy, v.nz * v.sz);
+    const camera = new THREE.PerspectiveCamera(40, 1, diag / 1000, diag * 30);
+    camera.up.set(0, 0, 1);
+    scene.add(camera); camera.add(new THREE.PointLight(0xffffff, 0.85)); scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    host.appendChild(renderer.domElement);
+    renderer.domElement.style.cssText = "position:absolute;inset:0;width:100%;height:100%";
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    const material = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 40, specular: 0x222222, side: THREE.DoubleSide });
+    const marker = new THREE.Mesh(new THREE.SphereGeometry(diag * 0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffd24d }));
+    scene.add(marker);
+    const cursor = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false }));
+    cursor.visible = false; cursor.raycast = () => {}; scene.add(cursor);
+    three = { scene, camera, renderer, controls, material, marker, cursor, rc: new THREE.Raycaster(), ndc: new THREE.Vector2(),
+      mesh: null, center, diag, vlabels: null, index: null, tri: null, pending: false };
+    const dom3 = renderer.domElement;
+    on(dom3, "pointerdown", on3DDown); on(dom3, "pointermove", on3DMove); on(dom3, "pointerup", on3DUp);
+    on(dom3, "pointercancel", on3DUp);
+    on(dom3, "pointerleave", () => { if (!drag) { cursor.visible = false; render3D(); } });
+    const home = () => {   // vue depuis l'avant du patient : sa droite est à gauche de l'écran
+      camera.position.set(center.x + diag * 0.35, center.y + diag * 1.1, center.z + diag * 0.35);
+      controls.target.copy(center); camera.lookAt(center); controls.update(); render3D();
+    };
+    three.home = home;
+    controls.addEventListener("change", () => render3D());
+    home(); rebuild3D(); resize3D();
+  }
+  function resize3D() {
+    if (!three) return;
+    const r = $("pane-3d").getBoundingClientRect(), w = Math.max(50, r.width), h = Math.max(50, r.height);
+    three.renderer.setSize(w, h, false); three.camera.aspect = w / h; three.camera.updateProjectionMatrix(); render3D();
+  }
+  function render3D() {
+    if (!three || three.pending) return;
+    three.pending = true;
+    requestAnimationFrame(() => { three.pending = false; three.renderer.render(three.scene, three.camera); });
+  }
+  function update3DColors() {
+    if (!three || !three.mesh) return;
+    const g = three.mesh.geometry, col = g.getAttribute("color").array, vl = three.vlabels;
+    for (let i = 0; i < vl.length; i++) {
+      const c = classes[vl[i]], rgb = c ? hexToRgb(c.hex) : fallbackRgb;
+      col[3 * i] = rgb[0] / 255; col[3 * i + 1] = rgb[1] / 255; col[3 * i + 2] = rgb[2] / 255;
+    }
+    g.getAttribute("color").needsUpdate = true;
+    // triangles visibles : au moins un sommet d'un label visible
+    const vis = new Uint8Array(256); for (const id in classes) vis[id] = classes[id].visible ? 1 : 0;
+    const full = three.tri; let k = 0; const out = three.index.array;
+    for (let t = 0; t < full.length; t += 3) {
+      const a = full[t], b = full[t + 1], c = full[t + 2];
+      if (vis[vl[a]] || vis[vl[b]] || vis[vl[c]]) { out[k++] = a; out[k++] = b; out[k++] = c; }
+    }
+    g.setDrawRange(0, k); three.index.needsUpdate = true;
+    render3D();
+  }
+  function rebuild3D() {
+    if (!three) return;
+    const t0 = Date.now();
+    const m = MPR.surfaceNets(v.labels, v.nx, v.ny, v.nz, v.sx, v.sy, v.sz);
+    MPR.smooth(m.positions, m.indices, 4, 0.5, -0.53);
+    if (three.mesh) { three.scene.remove(three.mesh); three.mesh.geometry.dispose(); three.mesh = null; }
+    if (m.positions.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(m.positions, 3));
+      g.setIndex(new THREE.BufferAttribute(m.indices, 1)); g.computeVertexNormals();
+      g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(m.positions.length), 3));
+      const idx = new THREE.BufferAttribute(new Uint32Array(m.indices.length), 1); idx.setUsage(THREE.DynamicDrawUsage);
+      g.setIndex(idx);
+      three.mesh = new THREE.Mesh(g, three.material); three.scene.add(three.mesh);
+      three.vlabels = m.vlabels; three.index = idx; three.tri = m.indices;
+      update3DColors();
+    }
+    update3DMarker();
+    const ms = Date.now() - t0;
+    if (ms > 2500 && $("auto3d").checked) {
+      $("auto3d").checked = false;
+      hint = "La 3D est lente à calculer (" + (ms / 1000).toFixed(1) + " s) : actualisation automatique désactivée, utilisez « Actualiser la 3D ».";
+      updateStats();
+    }
+    render3D();
+  }
+  // --- pinceau / gomme dans la vue 3D : sphère de voxels autour du point visé sur la surface -------------------------------
+  const isVisible = (lab) => !!(classes[lab] && classes[lab].visible);
+  const clampI = (x, n) => Math.max(0, Math.min(n - 1, x));
+  const pointToVox = (p) => [clampI(Math.round(p.x / v.sx), v.nx), clampI(Math.round(p.y / v.sy), v.ny), clampI(Math.round(p.z / v.sz), v.nz)];
+  function pick3D(ev) {
+    if (!three || !three.mesh) return null;
+    const r = three.renderer.domElement.getBoundingClientRect();
+    three.ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+    three.rc.setFromCamera(three.ndc, three.camera);
+    for (const h of three.rc.intersectObject(three.mesh, false)) {
+      const f = h.face, vl = three.vlabels;
+      if (isVisible(vl[f.a]) || isVisible(vl[f.b]) || isVisible(vl[f.c])) return h;   // ignore les parties masquées
+    }
+    return null;
+  }
+  // Label d'un point de la surface : label majoritaire des voxels qui l'entourent
+  function labelNearPos(x, y, z) {
+    const i0 = Math.floor(x / v.sx), j0 = Math.floor(y / v.sy), k0 = Math.floor(z / v.sz), cnt = {};
+    let best = 0, bc = 0;
+    for (let dk = 0; dk <= 1; dk++) for (let dj = 0; dj <= 1; dj++) for (let di = 0; di <= 1; di++) {
+      const i = i0 + di, j = j0 + dj, k = k0 + dk;
+      if (i < 0 || j < 0 || k < 0 || i >= v.nx || j >= v.ny || k >= v.nz) continue;
+      const lab = v.labels[i + v.nx * (j + v.ny * k)];
+      if (lab) { cnt[lab] = (cnt[lab] || 0) + 1; if (cnt[lab] > bc) { bc = cnt[lab]; best = lab; } }
+    }
+    return best;
+  }
+  // Retour visuel immédiat : recolore les sommets proches du pinceau (la surface est recalculée à la fin du trait)
+  function relabelVerticesNear(p, rad) {
+    if (!three || !three.mesh) return;
+    const g = three.mesh.geometry, pos = g.getAttribute("position").array, colAttr = g.getAttribute("color"), vl = three.vlabels, r2 = rad * rad;
+    let changed = false;
+    for (let i = 0; i < vl.length; i++) {
+      const dx = pos[3 * i] - p.x, dy = pos[3 * i + 1] - p.y, dz = pos[3 * i + 2] - p.z;
+      if (dx * dx + dy * dy + dz * dz > r2) continue;
+      const lab = labelNearPos(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]);
+      if (lab && lab !== vl[i]) {
+        vl[i] = lab;
+        const rgb = classes[lab] ? hexToRgb(classes[lab].hex) : fallbackRgb;
+        colAttr.array[3 * i] = rgb[0] / 255; colAttr.array[3 * i + 1] = rgb[1] / 255; colAttr.array[3 * i + 2] = rgb[2] / 255;
+        changed = true;
+      }
+    }
+    if (changed) { colAttr.needsUpdate = true; render3D(); }
+  }
+  function updateCursor3D() {
+    if (!three) return;
+    three.cursor.material.color.set(mode === "erase" ? "#ff5050" : (classes[brushLabel] ? classes[brushLabel].hex : "#ffffff"));
+    if (mode === "navigate") three.cursor.visible = false;
+    render3D();
+  }
+  function paint3D(ev) {
+    const h = pick3D(ev);
+    if (!h) { if (drag) drag.last = null; three.cursor.visible = false; render3D(); return; }
+    strokeHit = true;
+    const vox = pointToVox(h.point), r = radiusMm(), o = opts();
+    if (drag.last && (vox[0] !== drag.last[0] || vox[1] !== drag.last[1] || vox[2] !== drag.last[2])) markMoved();
+    if (drag.last) MPR.segment(v, "axial", drag.last, vox, r, true, o);        // true : pinceau sphérique
+    else MPR.stamp(v, "axial", vox[0], vox[1], vox[2], r, true, o);
+    drag.last = vox;
+    three.cursor.visible = true; three.cursor.position.copy(h.point); three.cursor.scale.setScalar(Math.max(r, 0.1));
+    relabelVerticesNear(h.point, r + Math.max(v.sx, v.sy, v.sz));
+    requestDraw();
+  }
+  let down3D = null;
+  function on3DDown(ev) {
+    if (ev.button !== 0) return;
+    if (isDoubleDown("3d", ev)) { toggleMax($("pane-3d")); return; }
+    if (mode === "navigate") { down3D = { x: ev.clientX, y: ev.clientY }; return; }
+    if (!editable) return;
+    try { three.renderer.domElement.setPointerCapture(ev.pointerId); } catch (e) { /* ignoré */ }
+    MPR.beginStroke(v); strokeHit = false; strokeIs3D = true; drag = { type: "paint3d", last: null };
+    paint3D(ev);
+  }
+  function on3DMove(ev) {
+    if (!three) return;
+    if (drag && drag.type === "paint3d") { paint3D(ev); return; }
+    if (mode !== "navigate") {
+      const h = pick3D(ev);
+      three.cursor.visible = !!h;
+      if (h) { three.cursor.position.copy(h.point); three.cursor.scale.setScalar(Math.max(radiusMm(), 0.1)); }
+      render3D();
+    }
+  }
+  function on3DUp(ev) {
+    if (drag && drag.type === "paint3d") { endDrag(); return; }
+    if (mode === "navigate" && down3D) {                // simple clic sur la surface : place le réticule à cet endroit
+      const moved = Math.hypot(ev.clientX - down3D.x, ev.clientY - down3D.y);
+      down3D = null;
+      if (moved < 4) {
+        const h = pick3D(ev);
+        if (h) { const vox = pointToVox(h.point); cur[0] = vox[0]; cur[1] = vox[1]; cur[2] = vox[2]; update3DMarker(); requestDraw(); }
+      }
+    }
+  }
+  function update3DMarker() { if (three) { three.marker.position.set(cur[0] * v.sx, cur[1] * v.sy, cur[2] * v.sz); render3D(); } }
+  let timer3d = null;
+  const schedule3D = () => { if ($("auto3d").checked) { clearTimeout(timer3d); timer3d = setTimeout(rebuild3D, 500); } };
+
+  // --- envoi à Python -----------------------------------------------------------------------------------------------
+  let sendTimer = null;
+  async function sendValue() {
+    if (!editable) return;
+    const gz = await MPR.gzip(v.labels);
+    ST.value({ scene_id: args.scene_id, edited: MPR.isEdited(v), counts: MPR.countByLabel(v.labels, BLEB), labels_gz: MPR.bytesToB64(gz) });
+  }
+  const scheduleSend = () => { clearTimeout(sendTimer); sendTimer = setTimeout(sendValue, 600); };
+
+  // --- édition -----------------------------------------------------------------------------------------------------------
+  const opts = () => ({ label: brushLabel, erase: mode === "erase", zone: zoneEl.value, eraseSel: eraseSelEl.checked });
+  function coords(p, ev) {
+    const r = p.canvas.getBoundingClientRect(), px = ev.clientX - r.left, py = ev.clientY - r.top;
+    layout(p);
+    const col = Math.floor((px - p.ox) / p.ppx), row = Math.floor((py - p.oy) / p.ppy);
+    return { px, py, col, row, inside: col >= 0 && col < p.info.w && row >= 0 && row < p.info.h };
+  }
+  function navigateTo(pl, e) {
+    if (!e.inside) return;
+    const vox = MPR.pixelToVoxel(pl, v, e.col, e.row, cur);
+    cur[0] = vox[0]; cur[1] = vox[1]; cur[2] = vox[2];
+    update3DMarker(); requestDraw();
+  }
+  let strokeTouched = 0, strokeHit = false, strokeIs3D = false;
+  // Double-clic sur une vue : elle occupe tout l'espace ; nouveau double-clic : retour aux 4 vues.
+  // En mode pinceau / gomme, le premier clic du double-clic a déjà posé un point : on l'annule.
+  const DBL_MS = 350, DBL_PX = 6;
+  let lastDown = null;
+  function isDoubleDown(id, ev) {
+    const now = Date.now();
+    const dbl = ev.button === 0 && lastDown && lastDown.id === id && now - lastDown.t < DBL_MS &&
+      Math.hypot(ev.clientX - lastDown.x, ev.clientY - lastDown.y) < DBL_PX;
+    if (dbl) {
+      if (lastDown.pushed && mode !== "navigate" && MPR.undo(v)) { hint = ""; updateStats(); scheduleSend(); schedule3D(); }
+      lastDown = null;
+      return true;
+    }
+    lastDown = ev.button === 0 ? { id, t: now, x: ev.clientX, y: ev.clientY, pushed: false, moved: false } : null;
+    return false;
+  }
+  const markMoved = () => { if (lastDown) lastDown.moved = true; };
+  function startStroke(pl, e) {
+    if (!editable) return;
+    MPR.beginStroke(v); strokeHit = e.inside; strokeIs3D = false;
+    drag = { type: "paint", plane: pl, last: null };
+    if (e.inside) { const vox = MPR.pixelToVoxel(pl, v, e.col, e.row, cur); drag.last = vox; MPR.stamp(v, pl, vox[0], vox[1], vox[2], radiusMm(), sphereEl.checked, opts()); requestDraw(); }
+  }
+  function moveStroke(pl, e) {
+    if (!e.inside) { drag.last = null; return; }
+    strokeHit = true;
+    const vox = MPR.pixelToVoxel(pl, v, e.col, e.row, cur);
+    if (drag.last && (vox[0] !== drag.last[0] || vox[1] !== drag.last[1] || vox[2] !== drag.last[2])) markMoved();
+    if (drag.last) MPR.segment(v, pl, drag.last, vox, radiusMm(), sphereEl.checked, opts());
+    else MPR.stamp(v, pl, vox[0], vox[1], vox[2], radiusMm(), sphereEl.checked, opts());
+    drag.last = vox; requestDraw();
+  }
+  function finishStroke() {
+    const n = MPR.endStroke(v);
+    if (lastDown && !lastDown.moved) lastDown.pushed = n > 0;
+    if (n) hint = "";
+    else if (!strokeHit) hint = strokeIs3D ? "Aucune surface sous le curseur." : "Aucune coupe sous le curseur.";
+    else if (mode === "erase") hint = "Aucun bleb à effacer ici.";
+    else if (zoneEl.value === "aneurysm") hint = "Aucun voxel modifié : la zone peignable est limitée à l'anévrisme (changez la zone pour peindre ailleurs).";
+    else hint = "Aucun voxel modifié.";
+    updateStats(); scheduleSend(); schedule3D(); requestDraw();
+  }
+  function endDrag() {
+    if (!drag) return;
+    const d0 = drag; drag = null;
+    if (d0.type === "paint" || d0.type === "paint3d") finishStroke();
+  }
+
+  for (const pl of PLANES) {
+    const p = panes[pl];
+    on(p.canvas, "contextmenu", (e) => e.preventDefault());
+    on(p.canvas, "pointerenter", () => { hoverPlane = pl; });
+    on(p.canvas, "pointerleave", () => { if (hoverPlane === pl) hoverPlane = null; p.mouse = null; requestDraw(); });
+    on(p.canvas, "pointerdown", (ev) => {
+      ev.preventDefault();
+      if (isDoubleDown(pl, ev)) { toggleMax(p.wrap); return; }
+      try { p.canvas.setPointerCapture(ev.pointerId); } catch (e) { /* ignoré */ }
+      const e = coords(p, ev);
+      if (ev.button === 1) drag = { type: "pan", plane: pl, x: ev.clientX, y: ev.clientY, px: p.view.px, py: p.view.py };
+      else if (ev.button === 2) drag = { type: "wl", x: ev.clientX, y: ev.clientY, c: wl.center, w: wl.width };
+      else if (ev.button === 0) {
+        if (mode === "navigate") { drag = { type: "nav", plane: pl }; navigateTo(pl, e); }
+        else startStroke(pl, e);
+      }
+    });
+    on(p.canvas, "pointermove", (ev) => {
+      const e = coords(p, ev);
+      p.mouse = { px: e.px, py: e.py }; hoverPlane = pl;
+      if (drag) {
+        if (drag.type === "paint" && drag.plane === pl) moveStroke(pl, e);
+        else if (drag.type === "nav" && drag.plane === pl) navigateTo(pl, e);
+        else if (drag.type === "pan" && drag.plane === pl) { p.view.px = drag.px + ev.clientX - drag.x; p.view.py = drag.py + ev.clientY - drag.y; requestDraw(); }
+        else if (drag.type === "wl") { setWL(drag.c + (ev.clientY - drag.y) * 0.5, drag.w + (ev.clientX - drag.x) * 0.7); }
+      } else if (mode !== "navigate") requestDraw();
+    });
+    on(p.canvas, "pointerup", () => endDrag());
+    on(p.canvas, "pointercancel", () => endDrag());
+    on(p.canvas, "wheel", (ev) => {
+      ev.preventDefault();
+      if (ev.ctrlKey) {   // zoom centré sur le curseur
+        const e = coords(p, ev), fc = (e.px - p.ox) / p.ppx, fr = (e.py - p.oy) / p.ppy;
+        p.view.zoom = Math.max(0.5, Math.min(12, p.view.zoom * (ev.deltaY < 0 ? 1.15 : 1 / 1.15)));
+        layout(p);
+        p.view.px += e.px - (p.ox + fc * p.ppx); p.view.py += e.py - (p.oy + fr * p.ppy);
+        requestDraw();
+      } else {
+        const fixed = p.info.fixed, n = [v.nx, v.ny, v.nz][fixed], step = (ev.deltaY > 0 ? 1 : -1) * (ev.shiftKey ? 5 : 1);
+        cur[fixed] = Math.max(0, Math.min(n - 1, cur[fixed] + step));
+        update3DMarker(); requestDraw();
+      }
+    }, { passive: false });
+    on(p.hdr, "dblclick", () => toggleMax(p.wrap));
+  }
+  on(window, "pointerup", () => endDrag());
+  function toggleMax(el) {
+    const grid = $("grid"), isMax = el.classList.contains("max");
+    for (const id of ["pane-axial", "pane-coronal", "pane-sagittal", "pane-3d"]) $(id).classList.remove("max");
+    grid.classList.toggle("hasmax", !isMax);
+    if (!isMax) el.classList.add("max");
+    setTimeout(resizePanes, 0);
+  }
+  on($("h-3d"), "dblclick", () => toggleMax($("pane-3d")));
+
+  // --- fenêtrage ---------------------------------------------------------------------------------------------------------------
+  function setWL(c, w) {
+    wl.center = Math.max(0, Math.min(255, c)); wl.width = Math.max(1, Math.min(255, w));
+    $("wlc").value = wl.center; $("wlw").value = wl.width;
+    lut = MPR.makeLut(wl.center, wl.width); requestDraw();
+  }
+  on($("wlc"), "input", (e) => setWL(parseFloat(e.target.value), wl.width));
+  on($("wlw"), "input", (e) => setWL(wl.center, parseFloat(e.target.value)));
+  on($("wlAuto"), "click", () => setWL(128, 255));
+  on($("alpha"), "input", (e) => { alpha = parseInt(e.target.value, 10) / 100; requestDraw(); });
+  on(sizeEl, "input", () => { $("sizeVal").textContent = sizeEl.value; if (three) three.cursor.scale.setScalar(Math.max(radiusMm(), 0.1)); requestDraw(); });
+
+  // --- modes, pinceau --------------------------------------------------------------------------------------------------------------
+  const HELP = {
+    navigate: "Clic gauche : placer le réticule · Molette : défiler · Ctrl+molette : zoom · Clic milieu : déplacer · Clic droit : fenêtrage · Double-clic sur une vue : agrandir / revenir aux 4 vues.",
+    paint: "Clic gauche : peindre avec la couleur choisie (dans la vue 3D : sphère autour du point visé, clic droit = rotation) · Molette : défiler · Ctrl+molette : zoom · Clic milieu : déplacer · Clic droit : fenêtrage · Double-clic : agrandir la vue.",
+    erase: "Clic gauche : effacer des blebs (dans la vue 3D aussi) · Molette : défiler · Ctrl+molette : zoom · Clic milieu : déplacer · Clic droit : fenêtrage · Double-clic : agrandir la vue.",
+  };
+  const modeBtns = document.querySelectorAll("#modes button");
+  function setMode(m) {
+    if (!editable && m !== "navigate") return;
+    mode = m;
+    modeBtns.forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
+    $("help").textContent = HELP[m];
+    for (const pl of PLANES) panes[pl].canvas.style.cursor = m === "navigate" ? "crosshair" : "none";
+    if (three) {   // en 3D : clic gauche = rotation en navigation, pinceau sinon (la rotation passe alors au clic droit)
+      three.controls.mouseButtons = m === "navigate"
+        ? { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
+        : { LEFT: -1, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+      updateCursor3D();
+    }
+    updateStats(); requestDraw();
+  }
+  modeBtns.forEach((b) => {
+    b.style.display = editable || b.dataset.mode === "navigate" ? "" : "none";
+    on(b, "click", () => setMode(b.dataset.mode));
+  });
+  const brushBox = $("brushLabels");
+  function renderBrushChoices() {
+    brushBox.innerHTML = "";
+    blebIds().forEach((id, k) => {
+      const b = document.createElement("button");
+      b.dataset.label = String(id); b.title = "Raccourci : " + (k + 1); b.className = id === brushLabel ? "on" : "";
+      const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = classes[id].hex;
+      const tx = document.createElement("span"); tx.textContent = classes[id].name;
+      b.append(sw, tx); brushBox.appendChild(b);
+      on(b, "click", () => { setBrush(id); if (mode === "navigate") setMode("paint"); });
+    });
+  }
+  function setBrush(id) { brushLabel = id; renderBrushChoices(); updateStats(); updateCursor3D(); requestDraw(); }
+
+  const clsBox = $("classes");
+  clsBox.innerHTML = "";
+  function addClassRow(id) {
+    const cl = classes[id], row = document.createElement("div"); row.className = "cls";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = cl.visible;
+    const col = document.createElement("input"); col.type = "color"; col.value = cl.hex;
+    const nm = document.createElement("span"); nm.textContent = cl.name;
+    row.append(cb, col, nm); clsBox.appendChild(row);
+    if (editable && id >= BLEB) { nm.style.cursor = "pointer"; nm.title = "Cliquer pour peindre avec ce bleb"; on(nm, "click", () => { setBrush(id); if (mode === "navigate") setMode("paint"); }); }
+    on(cb, "change", () => { classes[id].visible = cb.checked; rebuildColors(); update3DColors(); requestDraw(); });
+    on(col, "input", () => { classes[id].hex = col.value; rebuildColors(); update3DColors(); renderBrushChoices(); requestDraw(); });
+  }
+  Object.keys(classes).map(Number).sort((a, b) => a - b).forEach(addClassRow);
+  const addBtn = $("addBleb");
+  on(addBtn, "click", () => {
+    const ids = blebIds(), next = ids.length ? ids[ids.length - 1] + 1 : BLEB;
+    if (next - BLEB + 1 > MAXB) { hint = "Nombre maximal de blebs atteint (" + MAXB + ")."; updateStats(); return; }
+    ensureClass(next); addClassRow(next); setBrush(next);
+  });
+  $("edit").style.display = editable ? "block" : "none";
+  if (editable) renderBrushChoices();
+
+  on($("undo"), "click", () => { if (MPR.undo(v)) { updateStats(); scheduleSend(); schedule3D(); requestDraw(); } });
+  on($("reset"), "click", () => { MPR.resetAll(v); hint = ""; updateStats(); scheduleSend(); schedule3D(); requestDraw(); });
+  on($("home"), "click", () => { for (const pl of PLANES) panes[pl].view = { zoom: 1, px: 0, py: 0 }; if (three) three.home(); requestDraw(); });
+  on($("refresh3d"), "click", () => rebuild3D());
+  on($("auto3d"), "change", () => {});
+  on($("full"), "click", () => { const w = $("wrap"); if (document.fullscreenElement) document.exitFullscreen(); else if (w.requestFullscreen) w.requestFullscreen(); });
+
+  const onKey = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); if (MPR.undo(v)) { updateStats(); scheduleSend(); schedule3D(); requestDraw(); } return; }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === "n") setMode("navigate"); else if (k === "b") setMode("paint"); else if (k === "e") setMode("erase");
+    else if (editable && /^[1-9]$/.test(k)) { const id = blebIds()[parseInt(k, 10) - 1]; if (id !== undefined) { setBrush(id); if (mode === "navigate") setMode("paint"); } }
+    else if ((k === "arrowup" || k === "arrowdown") && hoverPlane) {
+      const p = panes[hoverPlane], fixed = p.info.fixed, n = [v.nx, v.ny, v.nz][fixed];
+      cur[fixed] = Math.max(0, Math.min(n - 1, cur[fixed] + (k === "arrowdown" ? 1 : -1)));
+      e.preventDefault(); update3DMarker(); requestDraw();
+    }
+  };
+  on(window, "keydown", onKey);
+  on(window, "resize", resizePanes);
+  let ro = null;
+  if (typeof ResizeObserver !== "undefined") { ro = new ResizeObserver(() => resizePanes()); ro.observe($("grid")); }
+
+  // --- démarrage -----------------------------------------------------------------------------------------------------------------------
+  $("ver").textContent = "viewer " + (args.viewer_version || "?") + " · " + nx + "×" + ny + "×" + nz + " voxels · " +
+    v.sx.toFixed(2) + "×" + v.sy.toFixed(2) + "×" + v.sz.toFixed(2) + " mm" + (imageBytes ? "" : " · sans image");
+  try { await loadLibs(); init3D(); } catch (err) { $("pane-3d").appendChild(Object.assign(document.createElement("div"), { textContent: "3D indisponible : " + err.message, className: "small" })); }
+  setMode("navigate");
+  updateStats();
+  resizePanes();
+  showMessage("");
+
+  S = {
+    sceneId: args.scene_id, v, cur, panes, classes, get three() { return three; },
+    api: { drawAll: requestDraw, setMode, setBrush, sendValue, rebuild3D, endDrag },
+    teardown() {
+      clearTimeout(sendTimer); clearTimeout(timer3d); cleanups.forEach((f) => f()); if (ro) ro.disconnect();
+      if (three) { three.renderer.dispose(); three.renderer.domElement.remove(); }
+    },
+  };
+}
+
+window.addEventListener("message", (ev) => {
+  const d = ev.data;
+  if (!d || d.type !== "streamlit:render") return;
+  const args = d.args || {};
+  ST.height(args.height || 800);
+  if (currentSceneId === args.scene_id) return;     // relance du script : on garde les vues et les corrections
+  currentSceneId = args.scene_id;
+  build(args).catch((err) => { showMessage("Erreur du viewer : " + err.message); console.error(err); });
+});
+ST.ready();
+</script>
+</body>
+</html>
