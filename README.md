@@ -9,7 +9,8 @@ Chaque cas se déroule en deux phases :
 
 1. **Comptage** : l'observateur voit l'image, les artères et l'anévrisme, et donne le nombre de blebs.
 2. **Segmentation** : il voit les blebs pré-segmentés (un label et une couleur par bleb) et les corrige au pinceau
-   ou à la gomme, directement sur les voxels.
+   ou à la gomme, directement sur les voxels. Il donne son avis sur chacun : « Correct », « À corriger » ou
+   « Pas un bleb ».
 
 ## Installation et lancement
 
@@ -48,13 +49,17 @@ Les fichiers peuvent être en NRRD ou en NIfTI. L'image et la segmentation doive
 - **Ordre aléatoire.** Les cas sont mélangés pour chaque passation ; la phase 1 d'un cas précède toujours sa phase 2.
 - **Pas de retour en arrière.** Une réponse enregistrée n'est plus modifiable : on avance toujours.
 - **« 0 bleb » en phase 1.** La phase 2 du cas est ignorée, et un NIfTI sans aucun bleb est enregistré comme résultat.
+- **Verdict par bleb en phase 2.** L'enregistrement n'est possible qu'une fois chaque bleb pré-segmenté jugé. Un
+  bleb « Pas un bleb » est rendu à l'anévrisme dans le fichier enregistré. « Correct » sur un bleb modifié, ou
+  « À corriger » sur un bleb intact, est refusé avec un message.
 - **Reprise.** Si la page est rechargée ou le navigateur fermé, l'observateur saisit le même identifiant et clique
   « Reprendre le test » : la passation reprend là où elle s'était arrêtée, dans le même ordre. Seules les réponses
   validées par « Enregistrer » sont conservées ; une correction en cours, non enregistrée, est perdue.
 
 ## Sorties
 
-- `notes_observateurs.csv` : une ligne par réponse, ajoutée à chaque « Enregistrer ».
+- `notes_observateurs.csv` : une ligne par réponse, ajoutée à chaque « Enregistrer ». La colonne `verdict_blebs`
+  contient l'avis par bleb, par exemple `3:correct; 4:pas_un_bleb` (3 = Bleb 1, 4 = Bleb 2…).
 - `resultats/resultats_<observateur>_<session>.csv` : récapitulatif écrit à la fin du test.
 - `resultats/corrections_<observateur>_<session>/*_corrige.nii.gz` : segmentation corrigée, dans l'orientation et
   l'espace du fichier d'origine. Écrite quand l'observateur a modifié la segmentation, ou après « 0 bleb ».
@@ -79,4 +84,5 @@ l'ajout de `uv.lock`, c'est donc lui qui définit l'environnement de l'applicati
 
 - Version d'origine (viewer MPR, pinceau et gomme sur les voxels, export NIfTI, ordre aléatoire) : Florent Autrusseau.
 - 16/11/2026, Fakhrielddine Bader : reprise d'une passation interrompue, identifiant de passation unique, bouton de
-  démarrage masqué pendant le test, NIfTI sans bleb après « 0 bleb », tests, environnement uv, ce README.
+  démarrage masqué pendant le test, NIfTI sans bleb après « 0 bleb », tests, environnement uv, ce README ;
+  verdict obligatoire par bleb en phase 2 et colonne `verdict_blebs`.

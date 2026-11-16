@@ -37,7 +37,14 @@ Historique :
     Version d'origine (viewer MPR, pinceau / gomme sur les voxels, export NIfTI, ordre aléatoire) : Florent Autrusseau.
     Modifications du 16/11/2026, Fakhrielddine Bader : reprise d'une passation interrompue, identifiant de
     passation unique, bouton de démarrage masqué pendant le test, NIfTI sans bleb enregistré après « 0 bleb ».
-    Les colonnes du CSV et les noms des fichiers de sortie sont inchangés.
+    Verdict obligatoire par bleb pré-segmenté en phase 2 (« Correct », « À corriger », « Pas un bleb ») et
+    nouvelle colonne verdict_blebs à la fin du CSV. Les autres colonnes et les noms des fichiers de sortie
+    sont inchangés.
+
+Verdict en phase 2 : l'observateur donne son avis sur chaque bleb pré-segmenté avant de pouvoir enregistrer.
+Valider devient ainsi une décision, et non une simple absence de correction. Un bleb jugé « Pas un bleb » est
+rendu à l'anévrisme dans le NIfTI enregistré. Le verdict doit concorder avec ce qui a été fait dans le viewer :
+« Correct » sur un bleb modifié, ou « À corriger » sur un bleb intact, bloque l'enregistrement.
 """
 
 import csv
@@ -85,7 +92,7 @@ MAX_VOXELS = 80_000_000  # au-delà (après recadrage), le cas est refusé
 CSV_FIELDS = [
     "horodatage", "observateur", "session", "position", "cas_playlist", "phase", "irm", "segmentation",
     "nb_blebs", "voxels_blebs_initial", "voxels_blebs_corrige", "fichier_correction_nifti", "export_nifti",
-    "phase2_ignoree",
+    "phase2_ignoree", "verdict_blebs",
 ]
 
 # label -> (nom affiché, couleur par défaut)
@@ -98,6 +105,8 @@ BLEB_COLORS = ["#ffd700", "#00e5ff", "#ff4dd2", "#7cfc00", "#ff8c00", "#b388ff",
 MIN_BLEB_CHOICES = 2  # nombre minimal de couleurs de pinceau proposées en phase 2
 MAX_BLEB_LABELS = 8  # nombre maximal de blebs distincts (bouton « + Nouveau bleb »)
 PARENT_LABEL = 2  # classe que retrouve un voxel quand on gomme un bleb
+# avis de l'observateur sur un bleb pré-segmenté (phase 2) : code écrit dans le CSV -> libellé affiché
+VERDICTS = {"correct": "Correct", "a_corriger": "À corriger", "pas_un_bleb": "Pas un bleb"}
 BLEB_LABEL = 3  # premier label de bleb : tout label >= 3 est un bleb, et chaque bleb garde son label
 FALLBACK_COLOR = "#999999"
 VIEWER_HEIGHT = 820
@@ -210,6 +219,24 @@ def export_edited(observer: str, run_id: str, case_no: int, entry: str, labels_g
 # --------------------------------------------------------------------------- #
 # Enregistrement des notes
 # --------------------------------------------------------------------------- #
+def verdicts_to_str(verdicts: dict) -> str:
+    """{label de bleb: verdict} -> « 3:correct; 4:pas_un_bleb » (colonne verdict_blebs du CSV)."""
+    return "; ".join(f"{lab}:{v}" for lab, v in sorted(verdicts.items()))
+
+
+def verdict_conflicts(initial, current_labels, verdicts: dict) -> list[str]:
+    """Incohérences entre le verdict d'un bleb et ce que l'observateur a fait dans le viewer."""
+    problems = []
+    for lab, verdict in sorted(verdicts.items()):
+        name = label_info(lab)[0]
+        modified = not np.array_equal(initial == lab, current_labels == lab)
+        if verdict == "correct" and modified:
+            problems.append(f"{name} : vous l'avez modifié. Choisissez « {VERDICTS['a_corriger']} », ou annulez la modification.")
+        elif verdict == "a_corriger" and not modified:
+            problems.append(f"{name} : aucune correction n'a été faite. Corrigez-le, ou choisissez « {VERDICTS['correct']} ».")
+    return problems
+
+
 def new_run(observer: str):
     """Démarre une nouvelle passation, avec un identifiant horodaté jamais utilisé par cet observateur."""
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -532,7 +559,24 @@ else:
         "Les blebs sont segmentés (chacun avec sa couleur). Corrigez la segmentation au besoin avec le "
         "pinceau / la gomme, dans n'importe laquelle des trois coupes, puis validez."
     )
-    ready = case is not None
+    # Verdict obligatoire pour chaque bleb pré-segmenté : valider est une décision, pas une absence de correction
+    verdicts = {}
+    preseg = [lab for lab in (case["present"] if case is not None else []) if lab >= BLEB_LABEL]
+    if preseg:
+        st.markdown("**Votre avis sur chaque bleb pré-segmenté**")
+        st.caption("« Pas un bleb » : il sera retiré de la segmentation à l'enregistrement.")
+        for lab in preseg:
+            choice = st.radio(
+                label_info(lab)[0],
+                options=list(VERDICTS),
+                format_func=VERDICTS.get,
+                index=None,
+                horizontal=True,
+                key=f"verdict_{observer}_{run_id}_{idx}_{lab}",
+            )
+            if choice is not None:
+                verdicts[lab] = choice
+    ready = case is not None and len(verdicts) == len(preseg)
 
 if st.button("💾 Enregistrer", type="primary", disabled=not ready):
     extra = {}
@@ -544,10 +588,22 @@ if st.button("💾 Enregistrer", type="primary", disabled=not ready):
             "voxels_blebs_corrige": counts_to_str(init_counts),
             "fichier_correction_nifti": "",
             "export_nifti": "",
+            "verdict_blebs": verdicts_to_str(verdicts),
         }
         same_scene = bool(viewer_value) and viewer_value.get("scene_id") == f"{current}|1"
-        if same_scene and viewer_value.get("edited"):
-            res = export_edited(observer, run_id, case_no, current, viewer_value["labels_gz"], case)
+        edited_now = same_scene and bool(viewer_value.get("edited"))
+        labels_now = unpack(viewer_value["labels_gz"], case["dims"]) if edited_now else case["labels"]
+        problems = verdict_conflicts(case["labels"], labels_now, verdicts)
+        if problems:  # rien n'est enregistré tant que le verdict et les corrections ne concordent pas
+            for msg in problems:
+                st.error(msg)
+            st.stop()
+        final = np.array(labels_now, dtype=np.uint8, copy=True)
+        for lab, verdict in verdicts.items():
+            if verdict == "pas_un_bleb":  # le bleb rejeté redevient « anévrisme » dans le masque enregistré
+                final[final == lab] = PARENT_LABEL
+        if not np.array_equal(final, case["labels"]):
+            res = export_edited(observer, run_id, case_no, current, final, case)
             extra["export_nifti"] = res["statut"]
             extra["fichier_correction_nifti"] = res.get("fichier", "")
             if "counts" in res:

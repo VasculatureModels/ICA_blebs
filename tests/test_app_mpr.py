@@ -10,7 +10,8 @@ Lancement (dossier du dépôt) :
 Vérifie : enregistrement des réponses et colonnes du CSV ; ordre aléatoire des cas (propre à chaque passation,
 phase 1 toujours avant phase 2, conservé à la reprise) ; « 0 bleb » : phase 2 ignorée et NIfTI sans bleb
 enregistré ; reprise d'une passation interrompue ; refus de reprise si la playlist a changé ; aucune réponse
-modifiable après coup ; bouton de démarrage masqué pendant le test.
+modifiable après coup ; bouton de démarrage masqué pendant le test ; verdict obligatoire par bleb en phase 2
+(« pas un bleb » retiré du masque enregistré, verdict incohérent avec les corrections refusé).
 Imprime RESUME : X OK, Y FAIL ; code de sortie 1 si au moins un échec. Les lignes « missing ScriptRunContext »
 affichées par Streamlit pendant les tests sont normales (application lancée sans serveur).
 """
@@ -108,7 +109,17 @@ def started_app(observer="obs"):
     return at
 
 
+def give_verdicts(at, verdict="correct"):
+    """Phase 2 : donne le même verdict à chaque bleb pré-segmenté (les boutons radio « Bleb k »)."""
+    for i in range(len(at.radio)):
+        if at.radio[i].label.startswith("Bleb"):
+            at.radio[i].set_value(verdict).run()
+
+
 def save(at):
+    """Enregistre ; en phase 2, répond d'abord « Correct » aux blebs qui n'ont pas encore de verdict."""
+    if "Phase 2/2" in at.subheader[0].value and button(at, "Enregistrer").disabled:
+        give_verdicts(at)
     button(at, "Enregistrer").click().run()
     assert not at.exception, at.exception
 
@@ -147,7 +158,8 @@ def test_full_case_and_csv_columns_unchanged():
         assert list(rows[0]) == [
             "horodatage", "observateur", "session", "position", "cas_playlist", "phase", "irm", "segmentation",
             "nb_blebs", "voxels_blebs_initial", "voxels_blebs_corrige", "fichier_correction_nifti", "export_nifti",
-            "phase2_ignoree"]                                     # exactement les colonnes de la version d'origine
+            "phase2_ignoree", "verdict_blebs"]                    # colonnes d'origine + verdict_blebs à la fin
+        assert rows[0]["verdict_blebs"] == "" and rows[1]["verdict_blebs"] == "3:correct; 4:correct"
 
 
 def test_zero_bleb_skips_phase_2_and_saves_bleb_free_mask():
@@ -169,6 +181,50 @@ def test_zero_bleb_skips_phase_2_and_saves_bleb_free_mask():
             assert np.array_equal(out, base)                      # = la segmentation d'origine, sans bleb
         assert rows[("A__ICA_1_blebs.seg.nrrd", "segmentation")]["voxels_blebs_initial"].count(":") == 2
         assert rows[("B__ICA_1_blebs.seg.nrrd", "segmentation")]["voxels_blebs_initial"] == ""
+
+
+def test_verdict_required_for_each_bleb():
+    with Workdir(["P1__ICA_1"], two_blebs=True) as w:
+        at = started_app()
+        answer(at, 2)
+        blebs = [r for r in at.radio if r.label.startswith("Bleb")]
+        assert [r.label for r in blebs] == ["Bleb 1", "Bleb 2"] and all(r.value is None for r in blebs)
+        assert button(at, "Enregistrer").disabled                 # aucun verdict
+        blebs[0].set_value("correct").run()
+        assert button(at, "Enregistrer").disabled                 # un seul verdict sur deux
+        [r for r in at.radio if r.label == "Bleb 2"][0].set_value("correct").run()
+        assert not button(at, "Enregistrer").disabled
+        assert len(w.rows()) == 1                                 # rien d'enregistré avant le clic
+
+
+def test_not_a_bleb_is_removed_from_saved_mask():
+    with Workdir(["P1__ICA_1"], two_blebs=True) as w:
+        at = started_app()
+        answer(at, 1)
+        [r for r in at.radio if r.label == "Bleb 1"][0].set_value("correct").run()
+        [r for r in at.radio if r.label == "Bleb 2"][0].set_value("pas_un_bleb").run()
+        save(at)
+        row = w.rows()[1]
+        assert row["verdict_blebs"] == "3:correct; 4:pas_un_bleb" and row["export_nifti"] == "ok"
+        assert row["voxels_blebs_initial"].count(":") == 2 and row["voxels_blebs_corrige"].startswith("3:")
+        assert "4:" not in row["voxels_blebs_corrige"]
+        pre = nrrd.read(str(w.root / "images" / "P1__ICA_1_blebs.seg.nrrd"))[0]
+        out = corrected(w)[Path(row["fichier_correction_nifti"]).name]
+        assert int((out == 4).sum()) == 0 and int((out == 3).sum()) == int((pre == 3).sum())   # bleb 1 intact
+        assert int((out == 2).sum()) == int((pre == 2).sum()) + int((pre == 4).sum())          # bleb 2 rendu à l'anévrisme
+
+
+def test_to_correct_without_correction_is_refused():
+    with Workdir(["P1__ICA_1"], two_blebs=True) as w:
+        at = started_app()
+        answer(at, 2)
+        give_verdicts(at, "a_corriger")
+        button(at, "Enregistrer").click().run()
+        assert any("aucune correction" in e.value for e in at.error), [e.value for e in at.error]
+        assert len(w.rows()) == 1 and "Phase 2/2" in phase(at)     # rien d'enregistré, on reste sur le cas
+        give_verdicts(at, "correct")
+        save(at)
+        assert len(w.rows()) == 2 and w.rows()[1]["verdict_blebs"] == "3:correct; 4:correct"
 
 
 def run_all_with_zero(at, n_cases):
