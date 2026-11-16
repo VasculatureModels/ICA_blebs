@@ -39,6 +39,7 @@ import numpy as np
 import streamlit as st
 import streamlit.components.v1 as components
 
+import results_tools as rt
 from mpr_utils import (
     counts_to_str,
     label_counts,
@@ -287,6 +288,7 @@ with st.sidebar:
         import nibabel  # noqa: F401
     except ImportError:
         st.warning("nibabel n'est pas installé : lecture des NIfTI et export impossibles (`pip install nibabel`).")
+    rt.admin_panel(st, OUTPUT_DIR, RESULTS_DIR, RATINGS_FILE)  # téléchargement des résultats (si ADMIN_PASSWORD est défini)
 
 playlist_path = PLAYLIST_PATH
 
@@ -480,4 +482,12 @@ if st.button("💾 Enregistrer", type="primary", disabled=not ready):
     nxt = idx + (2 if skip_next else 1)
     if nxt < len(playlist):
         st.session_state[state_key] = nxt
+    backup_cfg = rt.backup_config(st)
+    if backup_cfg:  # sauvegarde distante (le disque de Streamlit Cloud est éphémère) : CSV du parcours + fichier corrigé
+        to_send = [save_final_csv(observer, run_id, playlist, load_ratings(observer, run_id))]
+        if extra.get("fichier_correction_nifti"):
+            to_send.append(Path(extra["fichier_correction_nifti"]))
+        errs = [f"{n} : {m}" for n, ok, m in rt.backup_files(to_send, RESULTS_DIR, backup_cfg) if not ok]
+        if errs:
+            st.session_state["flash"] = st.session_state.get("flash", []) + [("warning", "Sauvegarde distante : " + " ; ".join(errs))]
     st.rerun()
