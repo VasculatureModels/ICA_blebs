@@ -24,6 +24,20 @@ Chaque bleb a son propre label (3, 4, 5...) et sa couleur ; le pinceau peint ave
 Ordre : les cas (paires) sont mélangés pour chaque passation (SHUFFLE_CASES), phase 1 toujours avant phase 2.
 Si la phase 1 répond « 0 bleb », la phase 2 du cas est ignorée (SKIP_PHASE2_IF_ZERO_BLEBS) et notée comme telle dans le CSV.
 Sortie : un NIfTI (labels, orientation et espace du fichier d'origine) par segmentation corrigée.
+
+Reprise : une passation interrompue (page rechargée, navigateur fermé) est reprise là où elle s'était arrêtée, avec le
+même identifiant d'observateur (« Reprendre le test »). L'ordre aléatoire des cas est celui tiré au début de la
+passation. Une réponse enregistrée n'est plus modifiable : on avance toujours, sans retour en arrière.
+
+« 0 bleb » en phase 1 : la phase 2 est ignorée, et un NIfTI sans aucun bleb (la pré-segmentation dont les blebs
+sont rendus à l'anévrisme) est enregistré comme résultat du cas.
+
+Auteurs : Fakhrielddine Bader, Florent Autrusseau.
+Historique :
+    Version d'origine (viewer MPR, pinceau / gomme sur les voxels, export NIfTI, ordre aléatoire) : Florent Autrusseau.
+    Modifications du 16/11/2026, Fakhrielddine Bader : reprise d'une passation interrompue, identifiant de
+    passation unique, bouton de démarrage masqué pendant le test, NIfTI sans bleb enregistré après « 0 bleb ».
+    Les colonnes du CSV et les noms des fichiers de sortie sont inchangés.
 """
 
 import csv
@@ -32,6 +46,7 @@ import os
 import random
 import re
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -170,7 +185,7 @@ def build_case(entry: str) -> dict:
     return load_case(image, seg, margin=CROP_MARGIN_VOX, max_voxels=MAX_VOXELS)
 
 
-def export_edited(observer: str, run_id: str, case_no: int, entry: str, labels_gz: str, case: dict) -> dict:
+def export_edited(observer: str, run_id: str, case_no: int, entry: str, labels_gz, case: dict) -> dict:
     """Écrit la segmentation corrigée en NIfTI (orientation et espace du fichier d'origine).
 
     Ne lève jamais d'exception : renvoie {"statut", "fichier", "counts"} pour que l'échec de l'export
@@ -178,7 +193,8 @@ def export_edited(observer: str, run_id: str, case_no: int, entry: str, labels_g
     if not EXPORT_NIFTI:
         return {"statut": "désactivé (EXPORT_NIFTI = False)"}
     try:
-        edited = unpack(labels_gz, case["dims"])
+        # labels_gz : volume compressé renvoyé par le viewer, ou directement un tableau de labels (recadré, RAS+)
+        edited = unpack(labels_gz, case["dims"]) if isinstance(labels_gz, str) else np.asarray(labels_gz, dtype=np.uint8)
         native = restore_native(edited, case)
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in observer)
         out = RESULTS_DIR / f"corrections_{safe}_{run_id}" / f"cas{case_no:03d}_{clean_stem(split_entry(entry)[1])}_corrige.nii.gz"
@@ -195,8 +211,13 @@ def export_edited(observer: str, run_id: str, case_no: int, entry: str, labels_g
 # Enregistrement des notes
 # --------------------------------------------------------------------------- #
 def new_run(observer: str):
+    """Démarre une nouvelle passation, avec un identifiant horodaté jamais utilisé par cet observateur."""
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    while load_ratings(observer, run_id):  # deux passations dans la même seconde : on attend la suivante
+        time.sleep(1.0)
+        run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     st.session_state["started_by"] = observer
-    st.session_state["run_id"] = datetime.now().strftime("%Y%m%d_%H%M%S")
+    st.session_state["run_id"] = run_id
 
 
 def archive_if_outdated():
@@ -220,6 +241,48 @@ def load_ratings(observer: str, run_id: str) -> dict:
                 if row["observateur"] == observer and row["session"] == run_id:
                     ratings[int(row["position"])] = row
     return ratings
+
+
+def resumable_run(observer: str, playlist: list[str]) -> tuple[str, int] | None:
+    """Dernière passation inachevée de l'observateur sur ces mêmes cas : (session, nb d'images notées).
+
+    L'ordre aléatoire d'une passation est recalculé à partir de (observateur, session) : il est donc le même à la
+    reprise. La reprise n'est proposée que si chaque réponse déjà enregistrée correspond à la segmentation attendue
+    à sa position (même playlist, donc même ordre) ; sinon une nouvelle passation démarre."""
+    archive_if_outdated()
+    if not Path(RATINGS_FILE).exists():
+        return None
+    with open(RATINGS_FILE, newline="", encoding="utf-8") as f:
+        sessions = sorted({r["session"] for r in csv.DictReader(f) if r["observateur"] == observer})
+    if not sessions:
+        return None
+    run_id = sessions[-1]  # identifiants horodatés : le dernier est le plus récent
+    ratings = load_ratings(observer, run_id)
+    expected, _ = ordered_cases(playlist, observer, run_id)
+    same_cases = all(
+        pos < len(expected) and Path(row["segmentation"]).name == Path(split_entry(expected[pos])[1]).name
+        for pos, row in ratings.items()
+    )
+    return (run_id, len(ratings)) if same_cases and 0 < len(ratings) < len(expected) else None
+
+
+def bleb_free_result(observer: str, run_id: str, case_no: int, entry: str) -> dict:
+    """Résultat d'un cas déclaré « 0 bleb » en phase 1 : un NIfTI sans aucun bleb.
+
+    La pré-segmentation de la phase 2 est chargée, tous ses blebs (labels >= BLEB_LABEL) redeviennent
+    « anévrisme », et le masque est écrit comme une correction ordinaire. Renvoie les champs du CSV."""
+    fields = {"phase2_ignoree": "oui"}
+    try:
+        case = build_case(entry)
+    except Exception as e:
+        return {**fields, "export_nifti": f"erreur : {e}"}
+    initial = {k: v for k, v in label_counts(case["labels"]).items() if k >= BLEB_LABEL}
+    cleaned = np.array(case["labels"], dtype=np.uint8, copy=True)
+    cleaned[cleaned >= BLEB_LABEL] = PARENT_LABEL
+    res = export_edited(observer, run_id, case_no, entry, cleaned, case)
+    remaining = {k: v for k, v in res.get("counts", {}).items() if k >= BLEB_LABEL}
+    return {**fields, "voxels_blebs_initial": counts_to_str(initial), "voxels_blebs_corrige": counts_to_str(remaining),
+            "fichier_correction_nifti": res.get("fichier", ""), "export_nifti": res["statut"]}
 
 
 def save_rating(
@@ -265,12 +328,35 @@ def save_final_csv(observer: str, run_id: str, playlist: list[str], ratings: dic
 # --------------------------------------------------------------------------- #
 # Barre latérale
 # --------------------------------------------------------------------------- #
+playlist_path = PLAYLIST_PATH
+playlist, playlist_error = [], None
+if Path(playlist_path).exists():
+    try:
+        playlist = read_playlist(playlist_path)
+    except ValueError as e:
+        playlist_error = str(e)
+playlist_ok = bool(playlist) and len(playlist) % 2 == 0
+
 with st.sidebar:
     st.header("Session")
     observer = st.text_input("Nom / identifiant de l'observateur").strip()
     blind = st.checkbox("Masquer les noms de fichiers (évaluation en aveugle)", True)
-    if st.button("▶ Démarrer le test", type="primary", disabled=not observer, use_container_width=True):
-        new_run(observer)
+    started = bool(observer) and st.session_state.get("started_by") == observer
+    if started:  # pas de bouton de démarrage pendant le test : un clic accidentel ferait repartir de zéro
+        st.caption("Test en cours : vos réponses sont enregistrées à chaque « Enregistrer ».")
+    else:
+        resume = resumable_run(observer, playlist) if observer and playlist_ok else None
+        if resume:
+            if st.button(f"▶ Reprendre le test ({resume[1]} / {len(playlist)} images notées)", type="primary",
+                         use_container_width=True):
+                st.session_state["started_by"], st.session_state["run_id"] = observer, resume[0]
+                st.rerun()
+            if st.button("Nouveau test (repartir de zéro)", use_container_width=True):
+                new_run(observer)
+                st.rerun()
+        elif st.button("▶ Démarrer le test", type="primary", disabled=not observer, use_container_width=True):
+            new_run(observer)
+            st.rerun()
     _real_out = Path(os.path.realpath(OUTPUT_DIR))
     if "trash" in f"{OUTPUT_DIR} {_real_out}".lower():
         st.error("Le dossier de sortie est dans la corbeille !")
@@ -288,22 +374,17 @@ with st.sidebar:
     except ImportError:
         st.warning("nibabel n'est pas installé : lecture des NIfTI et export impossibles (`pip install nibabel`).")
 
-playlist_path = PLAYLIST_PATH
-
 if not observer:
     st.info("Saisissez votre identifiant dans la barre latérale pour commencer.")
     st.stop()
-if st.session_state.get("started_by") != observer:
-    st.info("Cliquez sur « Démarrer le test » dans la barre latérale.")
+if not started:
+    st.info("Cliquez sur « Démarrer le test » (ou « Reprendre le test ») dans la barre latérale.")
     st.stop()
 if not Path(playlist_path).exists():
     st.error(f"Playlist introuvable : {playlist_path}")
     st.stop()
-
-try:
-    playlist = read_playlist(playlist_path)
-except ValueError as e:
-    st.error(str(e))
+if playlist_error:
+    st.error(playlist_error)
     st.stop()
 if not playlist:
     st.warning("La playlist est vide.")
@@ -475,8 +556,11 @@ if st.button("💾 Enregistrer", type="primary", disabled=not ready):
                 st.session_state["flash"] = [("warning", f"Export NIfTI : {res['statut']}")]
     save_rating(observer, run_id, idx, case_no, phase, current, n_blebs, extra)
     skip_next = SKIP_PHASE2_IF_ZERO_BLEBS and phase == PHASE_COUNT and n_blebs == 0 and idx + 1 < len(playlist)
-    if skip_next:  # « 0 bleb » : la phase 2 est ignorée, mais enregistrée comme telle pour garder la trace
-        save_rating(observer, run_id, idx + 1, case_ids[idx + 1] + 1, PHASE_SEG, playlist[idx + 1], None, {"phase2_ignoree": "oui"})
+    if skip_next:  # « 0 bleb » : la phase 2 est ignorée, et le résultat du cas est un NIfTI sans aucun bleb
+        skipped = bleb_free_result(observer, run_id, case_ids[idx + 1] + 1, playlist[idx + 1])
+        save_rating(observer, run_id, idx + 1, case_ids[idx + 1] + 1, PHASE_SEG, playlist[idx + 1], None, skipped)
+        if skipped["export_nifti"].startswith("erreur"):
+            st.session_state["flash"] = [("warning", f"Export NIfTI (0 bleb) : {skipped['export_nifti']}")]
     nxt = idx + (2 if skip_next else 1)
     if nxt < len(playlist):
         st.session_state[state_key] = nxt

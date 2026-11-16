@@ -1,0 +1,7 @@
+# Environnement
+.venv/
+__pycache__/
+*.pyc
+
+# Fichiers de verrouillage de LibreOffice
+.~lock.*#
