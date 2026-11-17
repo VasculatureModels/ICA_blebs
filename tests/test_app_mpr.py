@@ -139,12 +139,11 @@ def answer(at, n_blebs):
     viewer_sends(at, n_blebs=n_blebs, save=True)
 
 
-def save(at, verdicts=None, default="correct"):
-    """Phase 2 : donne un avis à chaque bleb (« Correct » par défaut) et enregistre."""
+def save(at, verdicts=None):
+    """Phase 2 : enregistre ; verdicts = choix de l'observateur ({label: "retouche" | "supprime"}), les autres
+    blebs sont gardés tels quels."""
     assert "Phase 2/2" in phase(at), phase(at)
-    given = {str(lab): default for lab in range(3, 12)}
-    given.update({str(k): v for k, v in (verdicts or {}).items()})
-    viewer_sends(at, verdicts=given, save=True)
+    viewer_sends(at, verdicts={str(k): v for k, v in (verdicts or {}).items()}, save=True)
 
 
 def corrected(w):
@@ -172,7 +171,7 @@ def test_full_case_and_csv_columns_unchanged():
             "horodatage", "observateur", "session", "position", "cas_playlist", "phase", "irm", "segmentation",
             "nb_blebs", "voxels_blebs_initial", "voxels_blebs_corrige", "fichier_correction_nifti", "export_nifti",
             "phase2_ignoree", "verdict_blebs", "nb_blebs_final"]  # colonnes d'origine + 2 colonnes à la fin
-        assert rows[0]["verdict_blebs"] == "" and rows[1]["verdict_blebs"] == "3:correct; 4:correct"
+        assert rows[0]["verdict_blebs"] == "" and rows[1]["verdict_blebs"] == "3:garde; 4:garde"
         assert rows[0]["nb_blebs_final"] == "" and rows[1]["nb_blebs_final"] == "2"
 
 
@@ -229,27 +228,25 @@ def test_save_needs_an_answer_and_one_click_saves_once():
         assert len(w.rows()) == 1, w.rows()                       # enregistré une seule fois
 
 
-def test_verdict_required_for_each_bleb():
-    with Workdir(["P1__ICA_1"], two_blebs=True) as w:
+def test_without_choice_blebs_are_kept_and_unknown_choices_ignored():
+    with Workdir(["P1__ICA_1", "P2__ICA_1"], two_blebs=True) as w:
         at = started_app()
         answer(at, 2)
-        viewer_sends(at, verdicts={}, save=True)                  # aucun avis
-        assert len(w.rows()) == 1 and "Phase 2/2" in phase(at)
-        viewer_sends(at, verdicts={"3": "correct"}, save=True)    # un seul avis sur deux
-        assert len(w.rows()) == 1
-        viewer_sends(at, verdicts={"3": "correct", "4": "bof"}, save=True)   # avis inconnu
-        assert len(w.rows()) == 1
-        viewer_sends(at, verdicts={"3": "correct", "4": "correct"}, save=True)
-        assert len(w.rows()) == 2 and w.rows()[1]["verdict_blebs"] == "3:correct; 4:correct"
+        viewer_sends(at, verdicts={}, save=True)                  # aucun choix : enregistré, blebs gardés
+        assert len(w.rows()) == 2 and w.rows()[1]["verdict_blebs"] == "3:garde; 4:garde"
+        assert w.rows()[1]["voxels_blebs_initial"] == w.rows()[1]["voxels_blebs_corrige"]
+        answer(at, 2)
+        viewer_sends(at, verdicts={"3": "correct", "4": "bof"}, save=True)   # anciens codes / codes inconnus : ignorés
+        assert w.rows()[3]["verdict_blebs"] == "3:garde; 4:garde"
 
 
-def test_not_a_bleb_is_removed_from_saved_mask():
+def test_deleted_bleb_is_removed_from_saved_mask():
     with Workdir(["P1__ICA_1"], two_blebs=True) as w:
         at = started_app()
         answer(at, 1)
-        save(at, {3: "correct", 4: "pas_un_bleb"})
+        save(at, {4: "supprime"})
         row = w.rows()[1]
-        assert row["verdict_blebs"] == "3:correct; 4:pas_un_bleb" and row["export_nifti"] == "ok"
+        assert row["verdict_blebs"] == "3:garde; 4:supprime" and row["export_nifti"] == "ok"
         assert w.rows()[0]["nb_blebs"] == "1" and row["nb_blebs_final"] == "1"   # phase 1 et masque final concordent
         assert row["voxels_blebs_initial"].count(":") == 2 and row["voxels_blebs_corrige"].startswith("3:")
         assert "4:" not in row["voxels_blebs_corrige"]
@@ -274,7 +271,7 @@ def test_final_preview_shows_what_was_saved_and_cannot_go_back():
     with Workdir(["A__ICA_1", "B__ICA_1"], two_blebs=True) as w:
         at = started_app()
         answer(at, 2)
-        viewer_sends(at, stay_on_review=True, verdicts={"3": "correct", "4": "pas_un_bleb"}, save=True)
+        viewer_sends(at, stay_on_review=True, verdicts={"4": "supprime"}, save=True)
         assert "Aperçu final" in phase(at) and "Cas 1 / 2" in phase(at)       # phase 3 du cas qui vient d'être enregistré
         table = at.dataframe[0].value
         assert list(table["phase"]) == ["comptage", "segmentation"]             # les 2 lignes du CSV du cas
@@ -290,17 +287,17 @@ def test_final_preview_shows_what_was_saved_and_cannot_go_back():
         assert any("Merci" in t.value for t in at.title) and w.rows()[-1]["phase2_ignoree"] == "oui"
 
 
-def test_to_correct_without_correction_is_refused():
+def test_retouch_without_change_is_refused():
     with Workdir(["P1__ICA_1"], two_blebs=True) as w:
         at = started_app()
         answer(at, 2)
         _CLICK[0] += 1
-        at.session_state["_test_viewer_value"] = {"verdicts": {"3": "a_corriger", "4": "correct"}, "save": _CLICK[0]}
+        at.session_state["_test_viewer_value"] = {"verdicts": {"3": "retouche"}, "save": _CLICK[0]}
         at.run()
-        assert any("aucune correction" in e.value for e in at.error), [e.value for e in at.error]   # message en haut de page
+        assert any("aucune retouche" in e.value for e in at.error), [e.value for e in at.error]   # message en haut de page
         assert len(w.rows()) == 1 and "Phase 2/2" in phase(at)     # rien d'enregistré, on reste sur le cas
         save(at)
-        assert len(w.rows()) == 2 and w.rows()[1]["verdict_blebs"] == "3:correct; 4:correct"
+        assert len(w.rows()) == 2 and w.rows()[1]["verdict_blebs"] == "3:garde; 4:garde"
 
 
 def run_all_with_zero(at, n_cases):

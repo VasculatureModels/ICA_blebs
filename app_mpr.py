@@ -37,27 +37,32 @@ Historique :
     Version d'origine (viewer MPR, pinceau / gomme sur les voxels, export NIfTI, ordre aléatoire) : Florent Autrusseau.
     Modifications du 16/11/2026, Fakhrielddine Bader : reprise d'une passation interrompue, identifiant de
     passation unique, bouton de démarrage masqué pendant le test, NIfTI sans bleb enregistré après « 0 bleb ».
-    Verdict obligatoire par bleb pré-segmenté en phase 2 (« Correct », « À corriger », « Pas un bleb ») et
-    nouvelle colonne verdict_blebs à la fin du CSV. Les autres colonnes et les noms des fichiers de sortie
+    Décision par bleb pré-segmenté en phase 2 et nouvelle colonne verdict_blebs à la fin du CSV. Les autres colonnes et les noms des fichiers de sortie
     sont inchangés.
     Toute l'évaluation est dans le panneau gauche du viewer, à côté des images : nombre de blebs (phase 1), avis
     par bleb (phase 2) et bouton « Enregistrer ». Il n'y a plus rien sous le viewer. Nom du patient affiché dans
     les deux phases (titre et panneau du viewer), sauf si l'option d'aveugle est cochée.
-    Phase 2 guidée : les outils (pinceau, gomme) n'apparaissent que pour le bleb jugé « À corriger » ou pour un
+    Phase 2 guidée : les outils (pinceau, gomme) n'apparaissent que pour le bleb à retoucher ou pour un
     bleb ajouté avec « + Nouveau bleb » ; seuls les blebs réellement pré-segmentés sont listés ; la partie
     « Affichage » du panneau est repliée. « Réinitialiser ce bleb » ne touche que le bleb en cours.
-    Contrôles avant l'enregistrement de la phase 2, affichés dans le panneau : avis incohérent avec les
-    corrections (bloquant) ; nombre de blebs différent de celui de la phase 1 (un second clic confirme).
+    Contrôles avant l'enregistrement de la phase 2, affichés dans le panneau : « Retoucher » sans retouche
+    (bloquant) ; nombre de blebs différent de celui de la phase 1 (un second clic confirme).
     Nouvelle colonne nb_blebs_final : nombre de blebs de la segmentation enregistrée en phase 2.
     Aperçu final (« phase 3 », SHOW_REVIEW) : après la phase 2 (pas après « 0 bleb »), le masque et les lignes du
     CSV sont relus sur le disque et affichés, sans modification possible, pour vérifier ce qui a été enregistré.
     Un NIfTI résultat est écrit pour chaque phase 2, même sans modification (c'est alors la pré-segmentation).
     Pinceau sphérique (3D) retiré du panneau : le pinceau peint uniquement dans la coupe affichée.
+    17/11/2026, demandes de F. Autrusseau : plus de bouton « Correct » (sans choix, le bleb est gardé) ;
+    « À corriger » devient « Retoucher », « Pas un bleb » devient « Supprimer » ; pinceau et gomme à 1 mm par
+    défaut ; un bleb ajouté a « Dessiner » et « Supprimer » (supprimé en entier) ; double-clic sur le panneau
+    gauche = plein écran (et retour). Colonne verdict_blebs : garde / retouche / supprime / ajoute.
+    « Supprimer » un bleb pré-segmenté le retire tout de suite à l'écran (rendu à l'anévrisme, nom barré) ;
+    un second clic le rétablit.
 
-Verdict en phase 2 : l'observateur donne son avis sur chaque bleb pré-segmenté avant de pouvoir enregistrer.
-Valider devient ainsi une décision, et non une simple absence de correction. Un bleb jugé « Pas un bleb » est
-rendu à l'anévrisme dans le NIfTI enregistré. Le verdict doit concorder avec ce qui a été fait dans le viewer :
-« Correct » sur un bleb modifié, ou « À corriger » sur un bleb intact, bloque l'enregistrement.
+Décision par bleb en phase 2 : sans choix, un bleb pré-segmenté est gardé tel quel (« garde »). L'observateur peut
+le retoucher (« Retoucher » : pinceau et gomme sur ce bleb seul) ou le supprimer (« Supprimer » : il est rendu à
+l'anévrisme dans le NIfTI enregistré). Il peut ajouter un bleb manquant (« + Nouveau bleb », noté « ajoute »).
+« Retoucher » sans aucune retouche bloque l'enregistrement.
 """
 
 import csv
@@ -121,11 +126,14 @@ MAX_BLEB_LABELS = 8  # nombre maximal de blebs distincts (bouton « + Nouveau bl
 SHOW_REVIEW = True
 # Textes du bloc « Évaluation » du panneau gauche du viewer
 COUNT_QUESTION = "Nombre de blebs sur les anévrismes"            # phase 1
-VERDICT_QUESTION = "Votre avis sur chaque bleb pré-segmenté"     # phase 2
+VERDICT_QUESTION = "Blebs pré-segmentés : retouchez ou supprimez si besoin"     # phase 2
 ZERO_HINT = "Avec « 0 bleb », la phase 2 de ce cas sera ignorée : vous passerez directement au cas suivant."
 PARENT_LABEL = 2  # classe que retrouve un voxel quand on gomme un bleb
 # avis de l'observateur sur un bleb pré-segmenté (phase 2) : code écrit dans le CSV -> libellé affiché
-VERDICTS = {"correct": "Correct", "a_corriger": "À corriger", "pas_un_bleb": "Pas un bleb"}
+# Phase 2 (décision de F. Autrusseau, 17/11/2026) : pas de bouton « Correct ». Sans choix, le bleb est gardé tel quel
+# (« garde ») ; l'observateur peut le retoucher ou le supprimer. Un bleb ajouté est noté « ajoute ».
+VERDICTS = {"retouche": "Retoucher", "supprime": "Supprimer"}  # codes écrits dans le CSV -> libellés des boutons
+KEEP, ADDED = "garde", "ajoute"
 BLEB_LABEL = 3  # premier label de bleb : tout label >= 3 est un bleb, et chaque bleb garde son label
 FALLBACK_COLOR = "#999999"
 VIEWER_HEIGHT = 820
@@ -274,7 +282,7 @@ def export_edited(observer: str, run_id: str, case_no: int, entry: str, labels_g
 # Enregistrement des notes
 # --------------------------------------------------------------------------- #
 def verdicts_to_str(verdicts: dict) -> str:
-    """{label de bleb: verdict} -> « 3:correct; 4:pas_un_bleb » (colonne verdict_blebs du CSV)."""
+    """{label de bleb: décision} -> « 3:garde; 4:supprime; 5:ajoute » (colonne verdict_blebs du CSV)."""
     return "; ".join(f"{lab}:{v}" for lab, v in sorted(verdicts.items()))
 
 
@@ -284,10 +292,11 @@ def verdict_conflicts(initial, current_labels, verdicts: dict) -> list[str]:
     for lab, verdict in sorted(verdicts.items()):
         name = label_info(lab)[0]
         modified = not np.array_equal(initial == lab, current_labels == lab)
-        if verdict == "correct" and modified:
-            problems.append(f"{name} : vous l'avez modifié. Choisissez « {VERDICTS['a_corriger']} », ou annulez la modification.")
-        elif verdict == "a_corriger" and not modified:
-            problems.append(f"{name} : aucune correction n'a été faite. Corrigez-le, ou choisissez « {VERDICTS['correct']} ».")
+        if verdict == KEEP and modified:
+            problems.append(f"{name} : il a été modifié sans que « {VERDICTS['retouche']} » soit choisi.")
+        elif verdict == "retouche" and not modified:
+            problems.append(f"{name} : aucune retouche n'a été faite. Retouchez-le, ou cliquez de nouveau sur "
+                            f"« {VERDICTS['retouche']} » pour annuler ce choix.")
     return problems
 
 
@@ -640,7 +649,8 @@ if case is not None:
         expected_count=phase1_count(ratings, idx) if phase == PHASE_SEG else None,
         expected_label=BLEB_OPTIONS.get(phase1_count(ratings, idx), "") if phase == PHASE_SEG else "",
         count_open_end=max(BLEB_OPTIONS),  # dernier choix (« > 3 blebs ») : au moins ce nombre
-        verdict_hint="« Pas un bleb » : il sera retiré de la segmentation à l'enregistrement.",
+        verdict_hint="Sans choix, le bleb est gardé tel quel. « Supprimer » : le bleb est rendu à l'anévrisme, "
+                     "on le voit disparaître. Un second clic sur un choix l'annule.",
         no_bleb_hint="Aucun bleb pré-segmenté. Ajoutez-en avec « + Nouveau bleb » si nécessaire, puis enregistrez.",
         dims=case["dims"],
         spacing=case["spacing"],
@@ -673,8 +683,9 @@ else:
     # Avis obligatoire pour chaque bleb pré-segmenté : valider est une décision, pas une absence de correction
     preseg = preseg_blebs(case) if case is not None else []
     given = answer.get("verdicts") or {}
-    verdicts = {lab: given[str(lab)] for lab in preseg if given.get(str(lab)) in VERDICTS}
-    ready = case is not None and len(verdicts) == len(preseg)
+    # sans choix de l'observateur, le bleb pré-segmenté est gardé tel quel
+    verdicts = {lab: (given[str(lab)] if given.get(str(lab)) in VERDICTS else KEEP) for lab in preseg}
+    ready = case is not None
 
 save_key = f"last_save_{observer}_{run_id}"
 save_id = answer.get("save")
@@ -699,8 +710,12 @@ if save_id and ready and st.session_state.get(save_key) != save_id:  # un clic s
             st.rerun()
         final = np.array(labels_now, dtype=np.uint8, copy=True)
         for lab, verdict in verdicts.items():
-            if verdict == "pas_un_bleb":  # le bleb rejeté redevient « anévrisme » dans le masque enregistré
+            if verdict == "supprime":  # le bleb supprimé redevient « anévrisme » dans le masque enregistré
                 final[final == lab] = PARENT_LABEL
+        for lab in sorted(set(label_counts(final)) - set(preseg)):  # blebs ajoutés par l'observateur
+            if lab >= BLEB_LABEL:
+                verdicts[lab] = ADDED
+        extra["verdict_blebs"] = verdicts_to_str(verdicts)
         extra["nb_blebs_final"] = n_blebs_in(final)  # à comparer au nb_blebs de la phase 1 du même cas
         # Un fichier résultat est toujours écrit en phase 2 : sans modification, c'est la pré-segmentation elle-même.
         # Chaque cas terminé a ainsi son masque final dans le dossier des corrections.

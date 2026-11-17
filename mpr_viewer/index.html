@@ -69,7 +69,7 @@
     </div>
     <div id="edit">
       <div id="toolTitle" class="vname" style="display:none"></div>
-      <label>Taille : <span id="sizeVal">3</span> mm <input id="size" type="range" min="0.5" max="20" step="0.5" value="3"></label>
+      <label>Taille : <span id="sizeVal">1</span> mm <input id="size" type="range" min="0.5" max="20" step="0.5" value="1"></label>
       <!-- Pinceau sphérique retiré du panneau (16/11/2026) : le pinceau peint seulement dans la coupe affichée. -->
       <input id="sphere" type="checkbox" style="display:none">
       <div id="freeTools">
@@ -464,6 +464,7 @@ async function build(args) {
   // Réponses données dans le panneau (bloc « Évaluation ») : nombre de blebs en phase 1, avis par bleb en phase 2.
   let chosenCount = null;
   const chosenVerdicts = {};
+  const addedBlebs = [];                                      // blebs ajoutés par l'observateur (phase 2)
   // Tout part dans une seule valeur : réponses du panneau, masque corrigé (phase 2) et, si save, l'ordre d'enregistrer.
   async function pushValue(save) {
     const val = { scene_id: args.scene_id };
@@ -654,8 +655,10 @@ async function build(args) {
 
   const clsBox = $("classes");
   clsBox.innerHTML = "";
+  const clsRows = {};
   function addClassRow(id) {
     const cl = classes[id], row = document.createElement("div"); row.className = "cls";
+    clsRows[id] = row;
     const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = cl.visible;
     const col = document.createElement("input"); col.type = "color"; col.value = cl.hex;
     const nm = document.createElement("span"); nm.textContent = cl.name;
@@ -690,6 +693,12 @@ async function build(args) {
   on($("home"), "click", () => { for (const pl of PLANES) panes[pl].view = { zoom: 1, px: 0, py: 0 }; if (three) three.home(); requestDraw(); });
   on($("refresh3d"), "click", () => rebuild3D());
   on($("auto3d"), "change", () => {});
+  // Double-clic sur le panneau gauche (hors boutons et réglages) : plein écran, et retour au double-clic suivant.
+  on($("panel"), "dblclick", (e) => {
+    if (e.target.closest("button, input, select, label, summary, a")) return;
+    const w = $("wrap");
+    if (document.fullscreenElement) document.exitFullscreen(); else if (w.requestFullscreen) w.requestFullscreen();
+  });
   on($("full"), "click", () => { const w = $("wrap"); if (document.fullscreenElement) document.exitFullscreen(); else if (w.requestFullscreen) w.requestFullscreen(); });
 
   const onKey = (e) => {
@@ -731,17 +740,21 @@ async function build(args) {
     const changed = MPR.changedByLabel(v), counts = MPR.countByLabel(v.labels, BLEB), block = [];
     for (const b of verdictBlebs) {
       const verdict = chosenVerdicts[b.id], n = changed[b.id] || 0;
-      if (verdict === "a_corriger" && !n) block.push(b.name + " : aucune correction n'a été faite. Corrigez-le, ou choisissez « Correct ».");
-      else if (verdict === "correct" && n) block.push(b.name + " : vous l'avez modifié. Choisissez « À corriger », ou cliquez « Réinitialiser ce bleb ».");
+      if (verdict === "retouche" && !n) block.push(b.name + " : aucune retouche n'a été faite. Retouchez-le, ou cliquez de nouveau sur « Retoucher » pour annuler ce choix.");
+      else if (!verdict && n) block.push(b.name + " : il a été modifié sans que « Retoucher » soit choisi.");
     }
-    const finalCount = Object.keys(counts).map(Number).filter((id) => counts[id] > 0 && chosenVerdicts[id] !== "pas_un_bleb").length;
+    const finalCount = Object.keys(counts).map(Number).filter((id) => counts[id] > 0 && chosenVerdicts[id] !== "supprime").length;
     const exp = args.expected_count, differs = exp === null || exp === undefined ? false : (exp >= args.count_open_end ? finalCount < exp : finalCount !== exp);
     const warn = differs ? "En phase 1, vous avez compté " + args.expected_label + ". La segmentation que vous enregistrez en contient " +
       finalCount + ".\nSi c'est bien votre choix, cliquez de nouveau sur « Enregistrer »." : "";
+    for (const id of addedBlebs) {                           // bleb ajouté mais jamais dessiné (ou trait hors anévrisme)
+      if (!(counts[id] > 0)) block.push((classes[id] ? classes[id].name : "Bleb") + " (ajouté) est vide : " +
+        "dessinez-le sur l'anévrisme, ou cliquez « Supprimer » sur sa ligne.");
+    }
     return { block, warn, key: finalCount + "|" + JSON.stringify(chosenVerdicts) };
   };
   const refreshSave = () => {
-    const ready = review ? true : args.count_options ? chosenCount !== null : !!verdictBlebs && verdictBlebs.every((b) => chosenVerdicts[b.id]);
+    const ready = review ? true : args.count_options ? chosenCount !== null : !!verdictBlebs;   // phase 2 : sans choix = gardé
     evalSave.disabled = saving || !ready;
     evalSave.textContent = saving ? (review ? "…" : "Enregistrement…") : (review ? review.button : "💾 Enregistrer");
   };
@@ -759,7 +772,7 @@ async function build(args) {
       evalOpts.appendChild(lab);
     }
   } else if (verdictBlebs) {                                  // phase 2 : un avis par bleb pré-segmenté
-    const origHex = {}, rowsOf = {}, added = [];
+    const origHex = {}, rowsOf = {}, added = addedBlebs;
     // Outils de correction : visibles seulement pour le bleb « activeBleb » (pinceau = ce bleb, gomme = ce bleb seul).
     const showTools = (id) => {
       activeBleb = id;
@@ -770,11 +783,28 @@ async function build(args) {
       if (id === null) { setMode("navigate"); return; }
       const t = $("toolTitle"); t.innerHTML = "";
       const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = origHex[id] || classes[id].hex;
-      t.appendChild(sw); t.appendChild(document.createTextNode("Correction : " + classes[id].name));
+      t.appendChild(sw); t.appendChild(document.createTextNode("Retouche : " + classes[id].name));
       setBrush(id);
       if (mode === "navigate") setMode("paint");
     };
-    // « Pas un bleb » : le bleb garde sa couleur à l'écran ; il n'est rendu à l'anévrisme qu'à l'enregistrement.
+    // « Supprimer » (bleb pré-segmenté) : le bleb est rendu tout de suite à l'anévrisme, on le voit disparaître ;
+    // son nom est barré, et un second clic sur « Supprimer » le rétablit.
+    // Un bleb ajouté, lui, est supprimé tout de suite et en entier (voxels rendus à l'anévrisme, ligne retirée).
+    const markDeleted = (id, on) => {
+      const r = rowsOf[id];
+      if (r) { r.name.style.textDecoration = on ? "line-through" : ""; r.name.style.opacity = on ? "0.55" : ""; }
+      if (clsRows[id]) { clsRows[id].style.opacity = on ? "0.4" : ""; clsRows[id].title = on ? "Bleb supprimé" : ""; }
+    };
+    const removeAdded = (id) => {
+      if (activeBleb === id) showTools(null);
+      MPR.resetLabel(v, id);
+      const r = rowsOf[id];
+      if (r) { r.name.remove(); r.row.remove(); delete rowsOf[id]; }
+      if (clsRows[id]) { clsRows[id].remove(); delete clsRows[id]; }
+      delete classes[id]; delete origHex[id];
+      const k = added.indexOf(id); if (k >= 0) added.splice(k, 1);
+      rebuildColors(); update3DColors(); updateStats(); scheduleSend(); schedule3D(); requestDraw();
+    };
     const addRow = (b, isNew) => {
       origHex[b.id] = b.color;
       const name = document.createElement("div"), row = document.createElement("div");
@@ -784,18 +814,30 @@ async function build(args) {
       rowsOf[b.id] = { name, row };
       if (isNew) {                                             // bleb ajouté par l'observateur : pas d'avis, seulement les outils
         const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = "(ajouté)"; name.appendChild(tag);
-        const btn = document.createElement("button"); btn.textContent = "Dessiner / modifier";
-        on(btn, "click", () => showTools(b.id));
-        row.appendChild(btn);
+        const draw = document.createElement("button"); draw.textContent = "Dessiner";
+        on(draw, "click", () => showTools(b.id));
+        const del = document.createElement("button"); del.textContent = "Supprimer";
+        on(del, "click", () => removeAdded(b.id));
+        row.append(draw, del);
       } else {
         for (const o of args.verdict_options) {
           const btn = document.createElement("button");
           btn.textContent = o.label; btn.dataset.verdict = o.value;
           on(btn, "click", () => {
-            chosenVerdicts[b.id] = o.value;
             showMsg("");
-            for (const x of row.children) x.classList.toggle("on", x === btn);
-            if (o.value === "a_corriger") showTools(b.id);
+            const undo = chosenVerdicts[b.id] === o.value;      // second clic sur le même choix : on l'annule
+            if (chosenVerdicts[b.id] === "retouche" && !(o.value === "retouche" && !undo)) {
+              MPR.resetLabel(v, b.id);                           // quitter « Retoucher » annule les retouches de ce bleb
+              updateStats(); scheduleSend(); schedule3D(); requestDraw();
+            }
+            const was = chosenVerdicts[b.id];
+            if (undo) delete chosenVerdicts[b.id]; else chosenVerdicts[b.id] = o.value;
+            const now = chosenVerdicts[b.id];
+            if (was === "supprime" && now !== "supprime") { MPR.restoreLabel(v, b.id); markDeleted(b.id, false); }
+            if (now === "supprime" && was !== "supprime") { MPR.hideLabel(v, b.id); markDeleted(b.id, true); }
+            if (was === "supprime" || now === "supprime") { updateStats(); scheduleSend(); schedule3D(); requestDraw(); }
+            for (const x of row.children) x.classList.toggle("on", !undo && x === btn);
+            if (!undo && o.value === "retouche") showTools(b.id);
             else if (activeBleb === b.id) showTools(null);
             refreshSave();
           });
@@ -808,7 +850,9 @@ async function build(args) {
     $("evalHint").textContent = verdictBlebs.length ? (args.verdict_hint || "") : (args.no_bleb_hint || "");
     const evalAdd = $("evalAdd");
     on(evalAdd, "click", () => {
-      const ids = blebIds().concat(verdictBlebs.map((b) => b.id)), next = ids.length ? Math.max.apply(null, ids) + 1 : BLEB;
+      // premier label libre : jamais celui d'un bleb pré-segmenté (même supprimé), ni d'un bleb ajouté encore présent
+      const used = new Set(verdictBlebs.map((b) => b.id).concat(added));
+      let next = BLEB; while (used.has(next)) next++;
       if (next - BLEB + 1 > MAXB) { $("evalHint").textContent = "Nombre maximal de blebs atteint (" + MAXB + ")."; return; }
       const cl = ensureClass(next); addClassRow(next); added.push(next);
       addRow({ id: next, name: cl.name, color: cl.hex }, true);

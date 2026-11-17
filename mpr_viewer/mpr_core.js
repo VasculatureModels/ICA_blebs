@@ -169,6 +169,22 @@
     }
     return MPR.endStroke(v);
   };
+  // « Supprimer » un bleb pré-segmenté (phase 2) : ses voxels sont rendus tout de suite à l'anévrisme, à l'écran
+  // comme dans le masque envoyé. Hors historique « Annuler » (vidé), pour qu'un « Annuler » ne le fasse pas revenir.
+  // Auteurs de ce bloc : Fakhrielddine Bader, Florent Autrusseau (17/11/2026).
+  MPR.hideLabel = function (v, id) {
+    let n = 0;
+    for (let i = 0; i < v.n; i++) if (v.labels[i] === id) { v.labels[i] = v.base[i]; n++; }
+    v.undoStack.length = 0;
+    return n;
+  };
+  // Annule la suppression : le bleb retrouve ses voxels d'origine (là où ils sont encore à l'anévrisme).
+  MPR.restoreLabel = function (v, id) {
+    let n = 0;
+    for (let i = 0; i < v.n; i++) if (v.init[i] === id && v.labels[i] === v.base[i]) { v.labels[i] = id; n++; }
+    v.undoStack.length = 0;
+    return n;
+  };
   // Nombre de voxels par lesquels chaque bleb diffère de son état d'origine : { label: n }.
   MPR.changedByLabel = function (v) {
     const m = {};
