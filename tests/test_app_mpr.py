@@ -10,7 +10,8 @@ Lancement (dossier du dépôt) :
 Vérifie : enregistrement des réponses et colonnes du CSV ; ordre aléatoire des cas (propre à chaque passation,
 phase 1 toujours avant phase 2, conservé à la reprise) ; « 0 bleb » : phase 2 ignorée et NIfTI sans bleb
 enregistré ; reprise d'une passation interrompue ; refus de reprise si la playlist a changé ; aucune réponse
-modifiable après coup ; bouton de démarrage masqué pendant le test ; verdict obligatoire par bleb en phase 2
+modifiable après coup ; bouton de démarrage masqué pendant le test ; évaluation dans le panneau du viewer
+(rien sous le viewer), nom du patient affiché ; verdict obligatoire par bleb en phase 2
 (« pas un bleb » retiré du masque enregistré, verdict incohérent avec les corrections refusé).
 Imprime RESUME : X OK, Y FAIL ; code de sortie 1 si au moins un échec. Les lignes « missing ScriptRunContext »
 affichées par Streamlit pendant les tests sont normales (application lancée sans serveur).
@@ -109,19 +110,23 @@ def started_app(observer="obs"):
     return at
 
 
-def give_verdicts(at, verdict="correct"):
-    """Phase 2 : donne le même verdict à chaque bleb pré-segmenté (les boutons radio « Bleb k »)."""
-    for i in range(len(at.radio)):
-        if at.radio[i].label.startswith("Bleb"):
-            at.radio[i].set_value(verdict).run()
+_CLICK = [0]
 
 
-def save(at):
-    """Enregistre ; en phase 2, répond d'abord « Correct » aux blebs qui n'ont pas encore de verdict."""
-    if "Phase 2/2" in at.subheader[0].value and button(at, "Enregistrer").disabled:
-        give_verdicts(at)
-    button(at, "Enregistrer").click().run()
+def viewer_sends(at, stay_on_review=False, **value):
+    """Simule ce que le viewer renvoie (les tests ne pilotent pas le navigateur) : réponses du panneau
+    « Évaluation » et, avec save=True, un clic sur son bouton « Enregistrer ».
+    Si l'aperçu final (phase 3) s'affiche ensuite, il est passé avec « Cas suivant », sauf stay_on_review=True."""
+    if value.pop("save", False):
+        _CLICK[0] += 1
+        value["save"] = _CLICK[0]
+    at.session_state["_test_viewer_value"] = value
+    at.run()
     assert not at.exception, at.exception
+    at.session_state["_test_viewer_value"] = None      # le viewer de l'image suivante n'a encore rien renvoyé
+    at.run()
+    if not stay_on_review and at.subheader and "Aperçu final" in at.subheader[0].value:
+        viewer_sends(at, save=True)                    # « Cas suivant »
 
 
 def phase(at):
@@ -129,10 +134,17 @@ def phase(at):
 
 
 def answer(at, n_blebs):
-    """Phase 1 : choisit un nombre de blebs et enregistre."""
+    """Phase 1 : choisit un nombre de blebs dans le panneau et enregistre."""
     assert "Phase 1/2" in phase(at), phase(at)
-    at.radio[0].set_value(n_blebs).run()
-    save(at)
+    viewer_sends(at, n_blebs=n_blebs, save=True)
+
+
+def save(at, verdicts=None, default="correct"):
+    """Phase 2 : donne un avis à chaque bleb (« Correct » par défaut) et enregistre."""
+    assert "Phase 2/2" in phase(at), phase(at)
+    given = {str(lab): default for lab in range(3, 12)}
+    given.update({str(k): v for k, v in (verdicts or {}).items()})
+    viewer_sends(at, verdicts=given, save=True)
 
 
 def corrected(w):
@@ -145,7 +157,6 @@ def test_full_case_and_csv_columns_unchanged():
     with Workdir(["P1__ICA_1"], two_blebs=True) as w:
         at = started_app()
         assert "Cas 1 / 1" in phase(at) and "Phase 1/2" in phase(at)
-        assert button(at, "Enregistrer").disabled                 # pas de réponse : bouton inactif
         answer(at, 2)
         assert "Phase 2/2" in phase(at)
         save(at)                                                  # pré-segmentation validée sans modification
@@ -154,12 +165,15 @@ def test_full_case_and_csv_columns_unchanged():
         assert [r["phase"] for r in rows] == ["comptage", "segmentation"] and rows[0]["nb_blebs"] == "2"
         assert rows[1]["segmentation"].endswith("P1__ICA_1_blebs.seg.nrrd") and rows[1]["irm"].endswith("P1__ICA_1.nrrd")
         assert rows[1]["voxels_blebs_initial"] == rows[1]["voxels_blebs_corrige"] and rows[1]["phase2_ignoree"] == ""
-        assert rows[1]["fichier_correction_nifti"] == "" and corrected(w) == {}   # rien de modifié : pas de NIfTI
+        out = corrected(w)[Path(rows[1]["fichier_correction_nifti"]).name]          # rien de modifié : NIfTI quand même
+        assert rows[1]["export_nifti"] == "ok"
+        assert np.array_equal(out, nrrd.read(str(w.root / "images" / "P1__ICA_1_blebs.seg.nrrd"))[0])   # = la pré-segmentation
         assert list(rows[0]) == [
             "horodatage", "observateur", "session", "position", "cas_playlist", "phase", "irm", "segmentation",
             "nb_blebs", "voxels_blebs_initial", "voxels_blebs_corrige", "fichier_correction_nifti", "export_nifti",
-            "phase2_ignoree", "verdict_blebs"]                    # colonnes d'origine + verdict_blebs à la fin
+            "phase2_ignoree", "verdict_blebs", "nb_blebs_final"]  # colonnes d'origine + 2 colonnes à la fin
         assert rows[0]["verdict_blebs"] == "" and rows[1]["verdict_blebs"] == "3:correct; 4:correct"
+        assert rows[0]["nb_blebs_final"] == "" and rows[1]["nb_blebs_final"] == "2"
 
 
 def test_zero_bleb_skips_phase_2_and_saves_bleb_free_mask():
@@ -176,6 +190,7 @@ def test_zero_bleb_skips_phase_2_and_saves_bleb_free_mask():
             r = rows[(f"{name}_blebs.seg.nrrd", "segmentation")]
             base = nrrd.read(str(w.root / "images" / f"{name}.seg.nrrd"))[0]
             assert r["phase2_ignoree"] == "oui" and r["export_nifti"] == "ok" and r["voxels_blebs_corrige"] == ""
+            assert r["nb_blebs_final"] == "0"
             out = corrected(w)[Path(r["fichier_correction_nifti"]).name]
             assert out.max() == 2                                 # plus aucun bleb
             assert np.array_equal(out, base)                      # = la segmentation d'origine, sans bleb
@@ -183,29 +198,59 @@ def test_zero_bleb_skips_phase_2_and_saves_bleb_free_mask():
         assert rows[("B__ICA_1_blebs.seg.nrrd", "segmentation")]["voxels_blebs_initial"] == ""
 
 
+def test_nothing_under_the_viewer_and_patient_name_is_shown():
+    with Workdir(["RCAN_01_311_S_0.4__ICA_2"], two_blebs=True) as w:
+        at = started_app()
+        for where in ("Phase 1/2", "Phase 2/2"):
+            assert where in phase(at)
+            assert not at.radio and not at.main.button           # ni question ni bouton sous le viewer
+            assert not any("valuation" in m.value for m in at.markdown)
+            assert "RCAN_01_311_S_0.4 (anévrisme 2)" in phase(at) and "_blebs" not in phase(at)   # nom du patient
+            if where == "Phase 1/2":
+                answer(at, 2)
+        at.sidebar.checkbox[0].set_value(True).run()              # option d'aveugle cochée : nom masqué
+        assert "RCAN" not in phase(at)
+        assert w.rows()[0]["nb_blebs"] == "2"
+
+
+def test_save_needs_an_answer_and_one_click_saves_once():
+    with Workdir(["A__ICA_1", "B__ICA_1"]) as w:
+        at = started_app()
+        csv_file = w.root / "sorties" / "notes_observateurs.csv"
+        viewer_sends(at, save=True)                               # « Enregistrer » sans réponse : ignoré
+        assert not csv_file.exists() and "Cas 1 / 2" in phase(at)
+        viewer_sends(at, n_blebs=7, save=True)                    # réponse hors des choix proposés : ignorée
+        assert not csv_file.exists()
+        _CLICK[0] += 1
+        at.session_state["_test_viewer_value"] = {"n_blebs": 1, "save": _CLICK[0]}
+        at.run()
+        at.run()                                                  # le même clic revient à la relance suivante
+        at.run()
+        assert len(w.rows()) == 1, w.rows()                       # enregistré une seule fois
+
+
 def test_verdict_required_for_each_bleb():
     with Workdir(["P1__ICA_1"], two_blebs=True) as w:
         at = started_app()
         answer(at, 2)
-        blebs = [r for r in at.radio if r.label.startswith("Bleb")]
-        assert [r.label for r in blebs] == ["Bleb 1", "Bleb 2"] and all(r.value is None for r in blebs)
-        assert button(at, "Enregistrer").disabled                 # aucun verdict
-        blebs[0].set_value("correct").run()
-        assert button(at, "Enregistrer").disabled                 # un seul verdict sur deux
-        [r for r in at.radio if r.label == "Bleb 2"][0].set_value("correct").run()
-        assert not button(at, "Enregistrer").disabled
-        assert len(w.rows()) == 1                                 # rien d'enregistré avant le clic
+        viewer_sends(at, verdicts={}, save=True)                  # aucun avis
+        assert len(w.rows()) == 1 and "Phase 2/2" in phase(at)
+        viewer_sends(at, verdicts={"3": "correct"}, save=True)    # un seul avis sur deux
+        assert len(w.rows()) == 1
+        viewer_sends(at, verdicts={"3": "correct", "4": "bof"}, save=True)   # avis inconnu
+        assert len(w.rows()) == 1
+        viewer_sends(at, verdicts={"3": "correct", "4": "correct"}, save=True)
+        assert len(w.rows()) == 2 and w.rows()[1]["verdict_blebs"] == "3:correct; 4:correct"
 
 
 def test_not_a_bleb_is_removed_from_saved_mask():
     with Workdir(["P1__ICA_1"], two_blebs=True) as w:
         at = started_app()
         answer(at, 1)
-        [r for r in at.radio if r.label == "Bleb 1"][0].set_value("correct").run()
-        [r for r in at.radio if r.label == "Bleb 2"][0].set_value("pas_un_bleb").run()
-        save(at)
+        save(at, {3: "correct", 4: "pas_un_bleb"})
         row = w.rows()[1]
         assert row["verdict_blebs"] == "3:correct; 4:pas_un_bleb" and row["export_nifti"] == "ok"
+        assert w.rows()[0]["nb_blebs"] == "1" and row["nb_blebs_final"] == "1"   # phase 1 et masque final concordent
         assert row["voxels_blebs_initial"].count(":") == 2 and row["voxels_blebs_corrige"].startswith("3:")
         assert "4:" not in row["voxels_blebs_corrige"]
         pre = nrrd.read(str(w.root / "images" / "P1__ICA_1_blebs.seg.nrrd"))[0]
@@ -214,15 +259,46 @@ def test_not_a_bleb_is_removed_from_saved_mask():
         assert int((out == 2).sum()) == int((pre == 2).sum()) + int((pre == 4).sum())          # bleb 2 rendu à l'anévrisme
 
 
+def test_counted_one_bleb_but_none_in_final_mask_is_visible_in_csv():
+    with Workdir([]) as w:
+        w.add("A__ICA_1", no_bleb=True)                           # aucun bleb pré-segmenté
+        at = started_app()
+        answer(at, 1)                                             # l'observateur en compte 1 en phase 1
+        save(at)                                                  # puis n'en dessine aucun en phase 2
+        rows = w.rows()
+        assert rows[0]["nb_blebs"] == "1" and rows[1]["nb_blebs_final"] == "0"   # l'écart se lit dans le tableau
+        assert rows[1]["voxels_blebs_corrige"] == "" and rows[1]["verdict_blebs"] == ""
+
+
+def test_final_preview_shows_what_was_saved_and_cannot_go_back():
+    with Workdir(["A__ICA_1", "B__ICA_1"], two_blebs=True) as w:
+        at = started_app()
+        answer(at, 2)
+        viewer_sends(at, stay_on_review=True, verdicts={"3": "correct", "4": "pas_un_bleb"}, save=True)
+        assert "Aperçu final" in phase(at) and "Cas 1 / 2" in phase(at)       # phase 3 du cas qui vient d'être enregistré
+        table = at.dataframe[0].value
+        assert list(table["phase"]) == ["comptage", "segmentation"]             # les 2 lignes du CSV du cas
+        assert list(table["nb_blebs"]) == ["2", ""] and list(table["nb_blebs_final"]) == ["", "1"]
+        assert table["fichier_correction_nifti"][1].endswith("_corrige.nii.gz")
+        assert not at.button and len(w.rows()) == 2                              # aucun bouton de retour, rien de réécrit
+        at.run()
+        assert "Aperçu final" in phase(at)                                       # reste affiché tant qu'on n'avance pas
+        viewer_sends(at, save=True)                                              # « Cas suivant »
+        assert "Cas 2 / 2" in phase(at) and "Phase 1/2" in phase(at) and len(w.rows()) == 2
+        viewer_sends(at, stay_on_review=True, n_blebs=0, save=True)              # « 0 bleb » : pas d'aperçu
+        assert not any("Aperçu final" in s.value for s in at.subheader)
+        assert any("Merci" in t.value for t in at.title) and w.rows()[-1]["phase2_ignoree"] == "oui"
+
+
 def test_to_correct_without_correction_is_refused():
     with Workdir(["P1__ICA_1"], two_blebs=True) as w:
         at = started_app()
         answer(at, 2)
-        give_verdicts(at, "a_corriger")
-        button(at, "Enregistrer").click().run()
-        assert any("aucune correction" in e.value for e in at.error), [e.value for e in at.error]
+        _CLICK[0] += 1
+        at.session_state["_test_viewer_value"] = {"verdicts": {"3": "a_corriger", "4": "correct"}, "save": _CLICK[0]}
+        at.run()
+        assert any("aucune correction" in e.value for e in at.error), [e.value for e in at.error]   # message en haut de page
         assert len(w.rows()) == 1 and "Phase 2/2" in phase(at)     # rien d'enregistré, on reste sur le cas
-        give_verdicts(at, "correct")
         save(at)
         assert len(w.rows()) == 2 and w.rows()[1]["verdict_blebs"] == "3:correct; 4:correct"
 
@@ -303,13 +379,11 @@ def test_resume_refused_when_playlist_changed():
 def test_no_way_back_and_no_start_button_during_test():
     with Workdir(["A__ICA_1", "B__ICA_1"]) as w:
         at = started_app()
-        labels = lambda a: [b.label for b in a.button]
-        assert not any("Démarrer" in x or "Reprendre" in x or "Nouveau test" in x for x in labels(at))   # test en cours
-        assert labels(at) == ["💾 Enregistrer"] and not at.sidebar.button      # aucun bouton de navigation
+        assert not at.button                                       # test en cours : ni démarrage, ni navigation
         answer(at, 1)
-        assert labels(at) == ["💾 Enregistrer"] and "Phase 2/2" in phase(at)   # impossible de revenir à la phase 1
+        assert not at.button and "Phase 2/2" in phase(at)          # impossible de revenir à la phase 1
         save(at)
-        assert "Cas 2 / 2" in phase(at) and labels(at) == ["💾 Enregistrer"]   # impossible de revenir au cas 1
+        assert "Cas 2 / 2" in phase(at) and not at.button          # impossible de revenir au cas 1
         assert len(w.rows()) == 2
 
 

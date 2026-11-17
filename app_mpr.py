@@ -40,6 +40,19 @@ Historique :
     Verdict obligatoire par bleb pré-segmenté en phase 2 (« Correct », « À corriger », « Pas un bleb ») et
     nouvelle colonne verdict_blebs à la fin du CSV. Les autres colonnes et les noms des fichiers de sortie
     sont inchangés.
+    Toute l'évaluation est dans le panneau gauche du viewer, à côté des images : nombre de blebs (phase 1), avis
+    par bleb (phase 2) et bouton « Enregistrer ». Il n'y a plus rien sous le viewer. Nom du patient affiché dans
+    les deux phases (titre et panneau du viewer), sauf si l'option d'aveugle est cochée.
+    Phase 2 guidée : les outils (pinceau, gomme) n'apparaissent que pour le bleb jugé « À corriger » ou pour un
+    bleb ajouté avec « + Nouveau bleb » ; seuls les blebs réellement pré-segmentés sont listés ; la partie
+    « Affichage » du panneau est repliée. « Réinitialiser ce bleb » ne touche que le bleb en cours.
+    Contrôles avant l'enregistrement de la phase 2, affichés dans le panneau : avis incohérent avec les
+    corrections (bloquant) ; nombre de blebs différent de celui de la phase 1 (un second clic confirme).
+    Nouvelle colonne nb_blebs_final : nombre de blebs de la segmentation enregistrée en phase 2.
+    Aperçu final (« phase 3 », SHOW_REVIEW) : après la phase 2 (pas après « 0 bleb »), le masque et les lignes du
+    CSV sont relus sur le disque et affichés, sans modification possible, pour vérifier ce qui a été enregistré.
+    Un NIfTI résultat est écrit pour chaque phase 2, même sans modification (c'est alors la pré-segmentation).
+    Pinceau sphérique (3D) retiré du panneau : le pinceau peint uniquement dans la coupe affichée.
 
 Verdict en phase 2 : l'observateur donne son avis sur chaque bleb pré-segmenté avant de pouvoir enregistrer.
 Valider devient ainsi une décision, et non une simple absence de correction. Un bleb jugé « Pas un bleb » est
@@ -92,7 +105,7 @@ MAX_VOXELS = 80_000_000  # au-delà (après recadrage), le cas est refusé
 CSV_FIELDS = [
     "horodatage", "observateur", "session", "position", "cas_playlist", "phase", "irm", "segmentation",
     "nb_blebs", "voxels_blebs_initial", "voxels_blebs_corrige", "fichier_correction_nifti", "export_nifti",
-    "phase2_ignoree", "verdict_blebs",
+    "phase2_ignoree", "verdict_blebs", "nb_blebs_final",
 ]
 
 # label -> (nom affiché, couleur par défaut)
@@ -102,8 +115,14 @@ LABELS = {
 }
 # Chaque bleb a son propre label (3, 4, 5...), son nom (« Bleb 1 », « Bleb 2 »...) et sa couleur.
 BLEB_COLORS = ["#ffd700", "#00e5ff", "#ff4dd2", "#7cfc00", "#ff8c00", "#b388ff", "#ff5252", "#40e0b0"]
-MIN_BLEB_CHOICES = 2  # nombre minimal de couleurs de pinceau proposées en phase 2
 MAX_BLEB_LABELS = 8  # nombre maximal de blebs distincts (bouton « + Nouveau bleb »)
+# Aperçu final après la phase 2 (« phase 3 ») : montre, sans modification possible, ce qui vient d'être enregistré
+# (masque relu sur le disque, lignes du CSV). Mettre False pour le retirer : rien d'autre ne change.
+SHOW_REVIEW = True
+# Textes du bloc « Évaluation » du panneau gauche du viewer
+COUNT_QUESTION = "Nombre de blebs sur les anévrismes"            # phase 1
+VERDICT_QUESTION = "Votre avis sur chaque bleb pré-segmenté"     # phase 2
+ZERO_HINT = "Avec « 0 bleb », la phase 2 de ce cas sera ignorée : vous passerez directement au cas suivant."
 PARENT_LABEL = 2  # classe que retrouve un voxel quand on gomme un bleb
 # avis de l'observateur sur un bleb pré-segmenté (phase 2) : code écrit dans le CSV -> libellé affiché
 VERDICTS = {"correct": "Correct", "a_corriger": "À corriger", "pas_un_bleb": "Pas un bleb"}
@@ -167,6 +186,41 @@ def split_entry(entry: str) -> tuple[str | None, str]:
 
 def display_name(entry: str) -> str:
     return Path(split_entry(entry)[1]).name
+
+
+def patient_label(entry: str) -> str:
+    """Nom du patient affiché à l'observateur, identique dans les deux phases d'un cas.
+
+    « images/RCAN_01_311_S_0.4__ICA_1_blebs.seg.nii.gz » -> « RCAN_01_311_S_0.4 (anévrisme 1) »."""
+    stem = re.sub(r"_blebs$", "", clean_stem(split_entry(entry)[1]))
+    m = re.fullmatch(r"(.+)__ICA_(\d+)", stem)
+    return f"{m.group(1)} (anévrisme {m.group(2)})" if m else stem
+
+
+def phase1_count(ratings: dict, idx: int) -> int | None:
+    """Nombre de blebs répondu en phase 1 pour le cas dont la phase 2 est à la position idx."""
+    prev = ratings.get(idx - 1)
+    return int(prev["nb_blebs"]) if prev and prev.get("nb_blebs", "") != "" else None
+
+
+def n_blebs_in(labels) -> int:
+    """Nombre de blebs distincts (labels >= BLEB_LABEL) présents dans un masque."""
+    return sum(1 for k in label_counts(labels) if k >= BLEB_LABEL)
+
+
+def preseg_blebs(case: dict) -> list[int]:
+    """Labels des blebs présents dans la pré-segmentation affichée."""
+    return [lab for lab in case["present"] if lab >= BLEB_LABEL]
+
+
+def viewer_component(**kwargs):
+    """Affiche le viewer et renvoie sa valeur (réponse de la phase 1, ou masque corrigé de la phase 2).
+
+    Les tests automatiques ne pilotent pas le navigateur : ils déposent la valeur que le viewer aurait renvoyée
+    dans st.session_state["_test_viewer_value"], et elle est rattachée à l'image affichée."""
+    value = _viewer(**kwargs)
+    fake = st.session_state.get("_test_viewer_value")
+    return {**fake, "scene_id": kwargs["scene_id"]} if fake else value
 
 
 def clean_stem(path: str) -> str:
@@ -298,7 +352,7 @@ def bleb_free_result(observer: str, run_id: str, case_no: int, entry: str) -> di
 
     La pré-segmentation de la phase 2 est chargée, tous ses blebs (labels >= BLEB_LABEL) redeviennent
     « anévrisme », et le masque est écrit comme une correction ordinaire. Renvoie les champs du CSV."""
-    fields = {"phase2_ignoree": "oui"}
+    fields = {"phase2_ignoree": "oui", "nb_blebs_final": 0}
     try:
         case = build_case(entry)
     except Exception as e:
@@ -367,7 +421,7 @@ playlist_ok = bool(playlist) and len(playlist) % 2 == 0
 with st.sidebar:
     st.header("Session")
     observer = st.text_input("Nom / identifiant de l'observateur").strip()
-    blind = st.checkbox("Masquer les noms de fichiers (évaluation en aveugle)", True)
+    blind = st.checkbox("Masquer le nom du patient (évaluation en aveugle)", False)
     started = bool(observer) and st.session_state.get("started_by") == observer
     if started:  # pas de bouton de démarrage pendant le test : un clic accidentel ferait repartir de zéro
         st.caption("Test en cours : vos réponses sont enregistrées à chaque « Enregistrer ».")
@@ -448,6 +502,61 @@ n_done = sum(i in ratings for i in range(len(playlist)))
 for kind, msg in st.session_state.pop("flash", []):
     getattr(st, kind)(msg)
 
+# --------------------------------------------------------------------------- #
+# Aperçu final (« phase 3 ») : ce qui vient d'être enregistré pour le cas, relu sur le disque
+# --------------------------------------------------------------------------- #
+review_key = f"review_{observer}_{run_id}"
+review_pos = st.session_state.get(review_key)
+if SHOW_REVIEW and review_pos is not None and review_pos in ratings and review_pos - 1 in ratings:
+    row1, row2 = ratings[review_pos - 1], ratings[review_pos]  # lignes du CSV, relues dans le fichier
+    entry = playlist[review_pos]
+    image, preseg_file = split_entry(entry)
+    saved_file = row2.get("fichier_correction_nifti", "")
+    shown_file = saved_file if saved_file and Path(saved_file).exists() else preseg_file
+    st.subheader(
+        f"Cas {review_pos // 2 + 1} / {len(playlist) // 2} — Aperçu final (phase 3) : segmentation enregistrée"
+        + ("" if blind else f" — {patient_label(entry)}")
+    )
+    st.caption(f"Lignes écrites dans `{RATINGS_FILE}` pour ce cas :")
+    cols = ["phase", "nb_blebs", "nb_blebs_final", "verdict_blebs", "voxels_blebs_initial", "voxels_blebs_corrige",
+            "phase2_ignoree", "export_nifti", "fichier_correction_nifti"]
+    st.dataframe([{c: (Path(r[c]).name if c == "fichier_correction_nifti" else r[c]) for c in cols} for r in (row1, row2)],
+                 hide_index=True)
+    try:
+        shown = load_case(image, shown_file, margin=CROP_MARGIN_VOX, max_voxels=MAX_VOXELS)
+    except Exception as e:
+        shown = None
+        st.error(f"Impossible de relire {Path(shown_file).name} : {e}")
+    review_value = None
+    if shown is not None:
+        blebs = {k: v for k, v in label_counts(shown["labels"]).items() if k >= BLEB_LABEL}
+        lines = [
+            f"Phase 1 : {BLEB_OPTIONS.get(int(row1['nb_blebs']), row1['nb_blebs'])}",
+            f"Segmentation enregistrée : {len(blebs)} bleb(s)",
+            *[f"  {label_info(k)[0]} : {v} voxels" for k, v in sorted(blebs.items())],
+            ("Fichier : " + Path(saved_file).name) if shown_file == saved_file
+            else "Fichier résultat introuvable : affichage de la pré-segmentation.",
+        ]
+        review_value = viewer_component(
+            scene_id=f"{entry}|review",
+            case_label=None if blind else patient_label(entry),
+            review={"lines": lines, "button": "Cas suivant ▶"},
+            dims=shown["dims"], spacing=shown["spacing"], center=shown["center"],
+            classes=[{"id": lab, "name": label_info(lab)[0], "color": label_info(lab)[1]} for lab in sorted(shown["present"])],
+            editable=False, bleb_label=BLEB_LABEL, parent_label=PARENT_LABEL, bleb_palette=BLEB_COLORS,
+            max_bleb_labels=MAX_BLEB_LABELS, viewer_version=_VIEWER_VERSION, height=VIEWER_HEIGHT,
+            key=f"viewer_{observer}_{run_id}", default=None, **shown["payload"],
+        )
+    save_key = f"last_save_{observer}_{run_id}"
+    go_on = bool(review_value) and review_value.get("scene_id") == f"{entry}|review" and review_value.get("save")
+    if shown is None or (go_on and st.session_state.get(save_key) != go_on):
+        if go_on:
+            st.session_state[save_key] = go_on
+        st.session_state.pop(review_key, None)  # on avance ; aucun retour possible
+        if shown is not None:
+            st.rerun()
+    st.stop()
+
 # --- Fin du test : page de remerciements + sauvegarde automatique du CSV ---
 if n_done == len(playlist):
     final_key = f"final_saved_{observer}_{run_id}_{playlist_path}"
@@ -487,7 +596,7 @@ phase_txt = (
 )
 st.subheader(
     f"Cas {idx // 2 + 1} / {len(playlist) // 2} — {phase_txt}"
-    + ("" if blind else f" — {display_name(current)}")
+    + ("" if blind else f" — {patient_label(current)}")
 )
 
 # --------------------------------------------------------------------------- #
@@ -506,16 +615,33 @@ except Exception as e:
 if case is not None:
     class_ids = set(case["present"])
     if editable:
-        # au moins MIN_BLEB_CHOICES couleurs de pinceau, et toutes celles des blebs déjà présents
-        n_shown = max([lab - BLEB_LABEL + 1 for lab in class_ids if lab >= BLEB_LABEL] + [MIN_BLEB_CHOICES])
-        class_ids |= {PARENT_LABEL} | set(range(BLEB_LABEL, BLEB_LABEL + min(n_shown, MAX_BLEB_LABELS)))
+        # Seuls les blebs réellement pré-segmentés sont proposés : aucun « Bleb 1 / Bleb 2 » fantôme. Un bleb
+        # manquant s'ajoute avec « + Nouveau bleb », dans le bloc « Évaluation » du viewer.
+        class_ids |= {PARENT_LABEL}
     classes = [
         {"id": lab, "name": label_info(lab)[0], "color": label_info(lab)[1]} for lab in sorted(class_ids)
     ]
     # Les arguments restent identiques d'une relance à l'autre pour une même image : le viewer n'est pas
     # rechargé, la position, le zoom et les corrections sont conservés.
-    viewer_value = _viewer(
+    # key propre à la passation (et non à l'image) : le même viewer sert d'une image à la suivante (il reçoit seulement de nouvelles données), ce qui
+    # conserve le plein écran entre la phase 1 et la phase 2. La valeur renvoyée porte l'identifiant de l'image.
+    viewer_value = viewer_component(
         scene_id=f"{current}|{int(editable)}",
+        case_label=None if blind else patient_label(current),
+        eval_title=COUNT_QUESTION if phase == PHASE_COUNT else VERDICT_QUESTION,
+        count_options=[{"value": k, "label": v} for k, v in BLEB_OPTIONS.items()] if phase == PHASE_COUNT else None,
+        zero_hint=ZERO_HINT if SKIP_PHASE2_IF_ZERO_BLEBS else "",
+        verdict_blebs=(
+            [{"id": lab, "name": label_info(lab)[0], "color": label_info(lab)[1]} for lab in preseg_blebs(case)]
+            if phase == PHASE_SEG else None
+        ),
+        verdict_options=[{"value": k, "label": v} for k, v in VERDICTS.items()],
+        # réponse de la phase 1 du même cas : le viewer prévient si la segmentation enregistrée n'a pas ce nombre de blebs
+        expected_count=phase1_count(ratings, idx) if phase == PHASE_SEG else None,
+        expected_label=BLEB_OPTIONS.get(phase1_count(ratings, idx), "") if phase == PHASE_SEG else "",
+        count_open_end=max(BLEB_OPTIONS),  # dernier choix (« > 3 blebs ») : au moins ce nombre
+        verdict_hint="« Pas un bleb » : il sera retiré de la segmentation à l'enregistrement.",
+        no_bleb_hint="Aucun bleb pré-segmenté. Ajoutez-en avec « + Nouveau bleb » si nécessaire, puis enregistrez.",
         dims=case["dims"],
         spacing=case["spacing"],
         center=case["center"],
@@ -527,58 +653,33 @@ if case is not None:
         max_bleb_labels=MAX_BLEB_LABELS,
         viewer_version=_VIEWER_VERSION,
         height=VIEWER_HEIGHT,
-        key=f"viewer_{observer}_{run_id}_{idx}",
+        key=f"viewer_{observer}_{run_id}",
         default=None,
         **case["payload"],
     )
 
 # --------------------------------------------------------------------------- #
-# Évaluation
+# Enregistrement
 # --------------------------------------------------------------------------- #
-st.markdown("### Évaluation")
-prev = ratings.get(idx)
-if prev:
-    st.caption("Déjà noté – vous pouvez modifier votre évaluation.")
-
-n_blebs = None
+# La question, les avis par bleb et le bouton « Enregistrer » sont dans le panneau gauche du viewer : rien n'est
+# affiché sous le viewer. Le viewer renvoie les réponses, le masque corrigé et, au clic, un numéro d'ordre « save ».
+answer = viewer_value if viewer_value and viewer_value.get("scene_id") == f"{current}|{int(editable)}" else {}
+n_blebs, verdicts = None, {}
 if phase == PHASE_COUNT:
-    prev_blebs = int(prev["nb_blebs"]) if prev and prev["nb_blebs"] != "" else None
-    n_blebs = st.radio(
-        "Nombre de blebs sur les anévrismes",
-        options=list(BLEB_OPTIONS),
-        format_func=BLEB_OPTIONS.get,
-        index=list(BLEB_OPTIONS).index(prev_blebs) if prev_blebs is not None else None,
-        horizontal=True,
-        key=f"blebs_{observer}_{run_id}_{idx}",
-    )
-    if SKIP_PHASE2_IF_ZERO_BLEBS and n_blebs == 0:
-        st.caption("Avec « 0 bleb », la phase 2 de ce cas sera ignorée : vous passerez directement au cas suivant.")
+    if answer.get("n_blebs") in BLEB_OPTIONS:
+        n_blebs = int(answer["n_blebs"])
     ready = n_blebs is not None
 else:
-    st.caption(
-        "Les blebs sont segmentés (chacun avec sa couleur). Corrigez la segmentation au besoin avec le "
-        "pinceau / la gomme, dans n'importe laquelle des trois coupes, puis validez."
-    )
-    # Verdict obligatoire pour chaque bleb pré-segmenté : valider est une décision, pas une absence de correction
-    verdicts = {}
-    preseg = [lab for lab in (case["present"] if case is not None else []) if lab >= BLEB_LABEL]
-    if preseg:
-        st.markdown("**Votre avis sur chaque bleb pré-segmenté**")
-        st.caption("« Pas un bleb » : il sera retiré de la segmentation à l'enregistrement.")
-        for lab in preseg:
-            choice = st.radio(
-                label_info(lab)[0],
-                options=list(VERDICTS),
-                format_func=VERDICTS.get,
-                index=None,
-                horizontal=True,
-                key=f"verdict_{observer}_{run_id}_{idx}_{lab}",
-            )
-            if choice is not None:
-                verdicts[lab] = choice
+    # Avis obligatoire pour chaque bleb pré-segmenté : valider est une décision, pas une absence de correction
+    preseg = preseg_blebs(case) if case is not None else []
+    given = answer.get("verdicts") or {}
+    verdicts = {lab: given[str(lab)] for lab in preseg if given.get(str(lab)) in VERDICTS}
     ready = case is not None and len(verdicts) == len(preseg)
 
-if st.button("💾 Enregistrer", type="primary", disabled=not ready):
+save_key = f"last_save_{observer}_{run_id}"
+save_id = answer.get("save")
+if save_id and ready and st.session_state.get(save_key) != save_id:  # un clic sur « Enregistrer » pas encore traité
+    st.session_state[save_key] = save_id
     extra = {}
     case_no = case_ids[idx] + 1  # numéro du cas dans la playlist d'origine (non mélangée)
     if phase == PHASE_SEG and case is not None:
@@ -590,26 +691,26 @@ if st.button("💾 Enregistrer", type="primary", disabled=not ready):
             "export_nifti": "",
             "verdict_blebs": verdicts_to_str(verdicts),
         }
-        same_scene = bool(viewer_value) and viewer_value.get("scene_id") == f"{current}|1"
-        edited_now = same_scene and bool(viewer_value.get("edited"))
-        labels_now = unpack(viewer_value["labels_gz"], case["dims"]) if edited_now else case["labels"]
+        edited_now = bool(answer.get("edited")) and bool(answer.get("labels_gz"))
+        labels_now = unpack(answer["labels_gz"], case["dims"]) if edited_now else case["labels"]
         problems = verdict_conflicts(case["labels"], labels_now, verdicts)
-        if problems:  # rien n'est enregistré tant que le verdict et les corrections ne concordent pas
-            for msg in problems:
-                st.error(msg)
-            st.stop()
+        if problems:  # rien n'est enregistré tant que l'avis et les corrections ne concordent pas
+            st.session_state["flash"] = [("error", msg) for msg in problems]
+            st.rerun()
         final = np.array(labels_now, dtype=np.uint8, copy=True)
         for lab, verdict in verdicts.items():
             if verdict == "pas_un_bleb":  # le bleb rejeté redevient « anévrisme » dans le masque enregistré
                 final[final == lab] = PARENT_LABEL
-        if not np.array_equal(final, case["labels"]):
-            res = export_edited(observer, run_id, case_no, current, final, case)
-            extra["export_nifti"] = res["statut"]
-            extra["fichier_correction_nifti"] = res.get("fichier", "")
-            if "counts" in res:
-                extra["voxels_blebs_corrige"] = counts_to_str({k: v for k, v in res["counts"].items() if k >= BLEB_LABEL})
-            if res["statut"].startswith("erreur"):  # un export réussi n'affiche rien
-                st.session_state["flash"] = [("warning", f"Export NIfTI : {res['statut']}")]
+        extra["nb_blebs_final"] = n_blebs_in(final)  # à comparer au nb_blebs de la phase 1 du même cas
+        # Un fichier résultat est toujours écrit en phase 2 : sans modification, c'est la pré-segmentation elle-même.
+        # Chaque cas terminé a ainsi son masque final dans le dossier des corrections.
+        res = export_edited(observer, run_id, case_no, current, final, case)
+        extra["export_nifti"] = res["statut"]
+        extra["fichier_correction_nifti"] = res.get("fichier", "")
+        if "counts" in res:
+            extra["voxels_blebs_corrige"] = counts_to_str({k: v for k, v in res["counts"].items() if k >= BLEB_LABEL})
+        if res["statut"].startswith("erreur"):  # un export réussi n'affiche rien
+            st.session_state["flash"] = [("warning", f"Export NIfTI : {res['statut']}")]
     save_rating(observer, run_id, idx, case_no, phase, current, n_blebs, extra)
     skip_next = SKIP_PHASE2_IF_ZERO_BLEBS and phase == PHASE_COUNT and n_blebs == 0 and idx + 1 < len(playlist)
     if skip_next:  # « 0 bleb » : la phase 2 est ignorée, et le résultat du cas est un NIfTI sans aucun bleb
@@ -620,4 +721,6 @@ if st.button("💾 Enregistrer", type="primary", disabled=not ready):
     nxt = idx + (2 if skip_next else 1)
     if nxt < len(playlist):
         st.session_state[state_key] = nxt
+    if SHOW_REVIEW and phase == PHASE_SEG:  # phase 2 enregistrée : aperçu de ce qui a été enregistré (pas après « 0 bleb »)
+        st.session_state[f"review_{observer}_{run_id}"] = idx
     st.rerun()
