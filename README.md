@@ -27,6 +27,13 @@ uv run streamlit run app_mpr.py                      # playlist.txt du dépôt
 uv run streamlit run app_mpr.py -- ma_playlist.txt   # autre playlist
 ```
 
+Pour une annotation de calibration où chaque bleb pré-segmenté doit être vu, `BLEB_SKIP_PHASE2=0` garde la
+phase 2 même après « 0 bleb » en phase 1 (par défaut, la phase 2 est sautée, comme dans l'étude) :
+
+```bash
+BLEB_SKIP_PHASE2=0 uv run streamlit run app_mpr.py -- ma_playlist.txt
+```
+
 Pour écrire les réponses ailleurs que dans le dossier du dépôt :
 
 ```bash

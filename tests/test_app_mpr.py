@@ -197,6 +197,21 @@ def test_zero_bleb_skips_phase_2_and_saves_bleb_free_mask():
         assert rows[("B__ICA_1_blebs.seg.nrrd", "segmentation")]["voxels_blebs_initial"] == ""
 
 
+def test_phase2_shown_after_zero_when_skip_disabled():
+    import os
+    os.environ["BLEB_SKIP_PHASE2"] = "0"
+    try:
+        with Workdir(["A__ICA_1"], two_blebs=True) as w:
+            at = started_app()
+            answer(at, 0)                                         # « 0 bleb »… mais la phase 2 est montrée
+            assert "Phase 2/2" in phase(at), phase(at)
+            save(at, {4: "supprime"})
+            r = w.rows()[1]
+            assert r["phase2_ignoree"] == "" and r["verdict_blebs"] == "3:garde; 4:supprime"
+    finally:
+        del os.environ["BLEB_SKIP_PHASE2"]
+
+
 def test_nothing_under_the_viewer_and_patient_name_is_shown():
     with Workdir(["RCAN_01_311_S_0.4__ICA_2"], two_blebs=True) as w:
         at = started_app()

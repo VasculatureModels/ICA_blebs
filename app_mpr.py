@@ -102,7 +102,9 @@ PLAYLIST_PATH = str(Path(sys.argv[1]).resolve()) if len(sys.argv) > 1 else str(B
 
 SHUFFLE_CASES = True  # ordre des cas aléatoire pour chaque passation (False : ordre de la playlist)
 # « 0 bleb » en phase 1 : la phase 2 du cas est ignorée (rien à corriger) et notée comme telle dans le CSV
-SKIP_PHASE2_IF_ZERO_BLEBS = True
+# « 0 bleb » en phase 1 -> phase 2 ignorée (règle de l'étude). BLEB_SKIP_PHASE2=0 au lancement la désactive, pour
+# une annotation de calibration où chaque bleb pré-segmenté doit être vu ; le comportement par défaut est inchangé.
+SKIP_PHASE2_IF_ZERO_BLEBS = os.environ.get("BLEB_SKIP_PHASE2", "1").strip() != "0"
 EXPORT_NIFTI = True  # écrire le masque corrigé en NIfTI
 CROP_MARGIN_VOX = 12  # marge (voxels) autour de la segmentation : seule cette région est envoyée au navigateur
 MAX_VOXELS = 80_000_000  # au-delà (après recadrage), le cas est refusé
