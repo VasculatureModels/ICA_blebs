@@ -639,6 +639,9 @@ async function build(args) {
     b.style.display = editable || b.dataset.mode === "navigate" ? "" : "none";
     on(b, "click", () => setMode(b.dataset.mode));
   });
+  // Phase 1 (sans correction) : « Navigation » serait le seul outil ; la rangée d'outils n'est pas affichée
+  // (19/11/2026, Fakhrielddine Bader). Le mode reste « navigate », souris et raccourcis inchangés.
+  $("modes").style.display = editable ? "" : "none";
   const brushBox = $("brushLabels");
   function renderBrushChoices() {
     brushBox.innerHTML = "";

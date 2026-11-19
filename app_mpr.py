@@ -7,7 +7,8 @@ Fichiers (dans le même dossier) :
     app_mpr.py   mpr_utils.py   mpr_viewer/index.html   mpr_viewer/mpr_core.js   playlist.txt
 
 Installation :  pip install streamlit numpy nibabel pynrrd      (pynrrd : seulement pour les .nrrd)
-Lancement    :  streamlit run app_mpr.py            (ou :  streamlit run app_mpr.py -- ma_playlist.txt)
+Lancement    :  streamlit run app_mpr.py                        (étude : identifiant JB, GG ou VL -> sa playlist)
+                streamlit run app_mpr.py -- ma_playlist.txt     (mode libre : tout identifiant, playlist donnée)
 
 Playlist (.txt) : une entrée par ligne, au format « image ; segmentation » (la segmentation seule est acceptée).
 Les entrées vont PAR PAIRES consécutives pour un même cas :
@@ -40,16 +41,15 @@ Historique :
     Décision par bleb pré-segmenté en phase 2 et nouvelle colonne verdict_blebs à la fin du CSV. Les autres colonnes et les noms des fichiers de sortie
     sont inchangés.
     Toute l'évaluation est dans le panneau gauche du viewer, à côté des images : nombre de blebs (phase 1), avis
-    par bleb (phase 2) et bouton « Enregistrer ». Il n'y a plus rien sous le viewer. Nom du patient affiché dans
-    les deux phases (titre et panneau du viewer), sauf si l'option d'aveugle est cochée.
+    par bleb (phase 2) et bouton « Enregistrer ». Il n'y a plus rien sous le viewer. (Nom du patient affiché
+    jusqu'au 19/11/2026, avec une option d'aveugle ; il n'est plus affiché depuis.)
     Phase 2 guidée : les outils (pinceau, gomme) n'apparaissent que pour le bleb à retoucher ou pour un
     bleb ajouté avec « + Nouveau bleb » ; seuls les blebs réellement pré-segmentés sont listés ; la partie
     « Affichage » du panneau est repliée. « Réinitialiser ce bleb » ne touche que le bleb en cours.
     Contrôles avant l'enregistrement de la phase 2, affichés dans le panneau : « Retoucher » sans retouche
     (bloquant) ; nombre de blebs différent de celui de la phase 1 (un second clic confirme).
     Nouvelle colonne nb_blebs_final : nombre de blebs de la segmentation enregistrée en phase 2.
-    Aperçu final (« phase 3 », SHOW_REVIEW) : après la phase 2 (pas après « 0 bleb »), le masque et les lignes du
-    CSV sont relus sur le disque et affichés, sans modification possible, pour vérifier ce qui a été enregistré.
+    Aperçu final (« phase 3 ») après la phase 2 : ajouté le 17/11/2026, retiré le 19/11/2026.
     Un NIfTI résultat est écrit pour chaque phase 2, même sans modification (c'est alors la pré-segmentation).
     Pinceau sphérique (3D) retiré du panneau : le pinceau peint uniquement dans la coupe affichée.
     17/11/2026, demandes de F. Autrusseau : plus de bouton « Correct » (sans choix, le bleb est gardé) ;
@@ -58,6 +58,12 @@ Historique :
     gauche = plein écran (et retour). Colonne verdict_blebs : garde / retouche / supprime / ajoute.
     « Supprimer » un bleb pré-segmenté le retire tout de suite à l'écran (rendu à l'anévrisme, nom barré) ;
     un second clic le rétablit.
+    19/11/2026, Fakhrielddine Bader, version de l'étude des observateurs :
+    - chaque identifiant ouvre sa propre playlist (OBSERVERS : JB, GG, VL ; jeux de 60 cas, dont 20 communs) ;
+      un identifiant inconnu est refusé. Avec une playlist en argument, mode libre (calibration, démonstration) ;
+    - le nom du patient n'est plus affiché, dans aucune phase (option « Masquer le nom du patient » retirée) ;
+    - phase 1 : la rangée d'outils (« Navigation », seul outil sans correction) n'est plus affichée ;
+    - l'aperçu final (« phase 3 ») est retiré : après la phase 2, on passe directement au cas suivant.
 
 Décision par bleb en phase 2 : sans choix, un bleb pré-segmenté est gardé tel quel (« garde »). L'observateur peut
 le retoucher (« Retoucher » : pinceau et gomme sur ce bleb seul) ou le supprimer (« Supprimer » : il est rendu à
@@ -98,7 +104,16 @@ OUTPUT_DIR = Path(os.path.abspath(os.path.expanduser(os.environ.get("BLEB_OUTPUT
 RATINGS_FILE = OUTPUT_DIR / "notes_observateurs.csv"  # journal commun, mis à jour à chaque note
 RESULTS_DIR = OUTPUT_DIR / "resultats"  # récapitulatifs CSV par passation + segmentations corrigées
 
-PLAYLIST_PATH = str(Path(sys.argv[1]).resolve()) if len(sys.argv) > 1 else str(BASE_DIR / "playlist.txt")
+# Étude des observateurs : identifiant -> (nom, playlist). Lancement SANS argument = mode étude : seul un identifiant
+# de cette liste est accepté, et il ouvre sa propre playlist (dossier BLEB_PLAYLIST_DIR, par défaut celui du script).
+# Lancement AVEC une playlist en argument = mode libre (calibration, démonstration) : tout identifiant est accepté.
+OBSERVERS = {
+    "JB": ("Julien Boucherit", "playlist_JB.txt"),
+    "GG": ("Guillaume Geffroy", "playlist_GG.txt"),
+    "VL": ("Vincent L'Allinec", "playlist_VL.txt"),
+}
+PLAYLIST_DIR = Path(os.path.abspath(os.path.expanduser(os.environ.get("BLEB_PLAYLIST_DIR", str(BASE_DIR)))))
+PLAYLIST_ARG = str(Path(sys.argv[1]).resolve()) if len(sys.argv) > 1 else None
 
 SHUFFLE_CASES = True  # ordre des cas aléatoire pour chaque passation (False : ordre de la playlist)
 # « 0 bleb » en phase 1 : la phase 2 du cas est ignorée (rien à corriger) et notée comme telle dans le CSV
@@ -123,9 +138,6 @@ LABELS = {
 # Chaque bleb a son propre label (3, 4, 5...), son nom (« Bleb 1 », « Bleb 2 »...) et sa couleur.
 BLEB_COLORS = ["#ffd700", "#00e5ff", "#ff4dd2", "#7cfc00", "#ff8c00", "#b388ff", "#ff5252", "#40e0b0"]
 MAX_BLEB_LABELS = 8  # nombre maximal de blebs distincts (bouton « + Nouveau bleb »)
-# Aperçu final après la phase 2 (« phase 3 ») : montre, sans modification possible, ce qui vient d'être enregistré
-# (masque relu sur le disque, lignes du CSV). Mettre False pour le retirer : rien d'autre ne change.
-SHOW_REVIEW = True
 # Textes du bloc « Évaluation » du panneau gauche du viewer
 COUNT_QUESTION = "Nombre de blebs sur les anévrismes"            # phase 1
 VERDICT_QUESTION = "Blebs pré-segmentés : retouchez ou supprimez si besoin"     # phase 2
@@ -196,15 +208,6 @@ def split_entry(entry: str) -> tuple[str | None, str]:
 
 def display_name(entry: str) -> str:
     return Path(split_entry(entry)[1]).name
-
-
-def patient_label(entry: str) -> str:
-    """Nom du patient affiché à l'observateur, identique dans les deux phases d'un cas.
-
-    « images/RCAN_01_311_S_0.4__ICA_1_blebs.seg.nii.gz » -> « RCAN_01_311_S_0.4 (anévrisme 1) »."""
-    stem = re.sub(r"_blebs$", "", clean_stem(split_entry(entry)[1]))
-    m = re.fullmatch(r"(.+)__ICA_(\d+)", stem)
-    return f"{m.group(1)} (anévrisme {m.group(2)})" if m else stem
 
 
 def phase1_count(ratings: dict, idx: int) -> int | None:
@@ -420,20 +423,32 @@ def save_final_csv(observer: str, run_id: str, playlist: list[str], ratings: dic
 # --------------------------------------------------------------------------- #
 # Barre latérale
 # --------------------------------------------------------------------------- #
-playlist_path = PLAYLIST_PATH
-playlist, playlist_error = [], None
-if Path(playlist_path).exists():
-    try:
-        playlist = read_playlist(playlist_path)
-    except ValueError as e:
-        playlist_error = str(e)
-playlist_ok = bool(playlist) and len(playlist) % 2 == 0
+def observer_playlist(observer: str) -> str | None:
+    """Playlist de l'observateur : celle donnée en argument (mode libre), sinon la sienne (mode étude), sinon None."""
+    if PLAYLIST_ARG:
+        return PLAYLIST_ARG
+    return str(PLAYLIST_DIR / OBSERVERS[observer][1]) if observer in OBSERVERS else None
+
 
 with st.sidebar:
     st.header("Session")
-    observer = st.text_input("Nom / identifiant de l'observateur").strip()
-    blind = st.checkbox("Masquer le nom du patient (évaluation en aveugle)", False)
-    started = bool(observer) and st.session_state.get("started_by") == observer
+    observer = st.text_input("Identifiant de l'observateur").strip()
+    if observer and not PLAYLIST_ARG:
+        observer = observer.upper()          # mode étude : « jb » et « JB » désignent le même observateur
+    unknown = bool(observer) and observer_playlist(observer) is None
+    if unknown:
+        st.error("Identifiant inconnu. Saisissez l'identifiant qui vous a été communiqué.")
+    elif observer and not PLAYLIST_ARG:
+        st.caption(f"Observateur : {OBSERVERS[observer][0]}")
+    playlist_path = observer_playlist(observer) if observer and not unknown else None
+    playlist, playlist_error = [], None
+    if playlist_path and Path(playlist_path).exists():
+        try:
+            playlist = read_playlist(playlist_path)
+        except ValueError as e:
+            playlist_error = str(e)
+    playlist_ok = bool(playlist) and len(playlist) % 2 == 0
+    started = bool(observer) and not unknown and st.session_state.get("started_by") == observer
     if started:  # pas de bouton de démarrage pendant le test : un clic accidentel ferait repartir de zéro
         st.caption("Test en cours : vos réponses sont enregistrées à chaque « Enregistrer ».")
     else:
@@ -446,7 +461,8 @@ with st.sidebar:
             if st.button("Nouveau test (repartir de zéro)", use_container_width=True):
                 new_run(observer)
                 st.rerun()
-        elif st.button("▶ Démarrer le test", type="primary", disabled=not observer, use_container_width=True):
+        elif st.button("▶ Démarrer le test", type="primary", disabled=not observer or unknown,
+                       use_container_width=True):
             new_run(observer)
             st.rerun()
     _real_out = Path(os.path.realpath(OUTPUT_DIR))
@@ -466,7 +482,7 @@ with st.sidebar:
     except ImportError:
         st.warning("nibabel n'est pas installé : lecture des NIfTI et export impossibles (`pip install nibabel`).")
 
-if not observer:
+if not observer or unknown:
     st.info("Saisissez votre identifiant dans la barre latérale pour commencer.")
     st.stop()
 if not started:
@@ -513,61 +529,6 @@ n_done = sum(i in ratings for i in range(len(playlist)))
 for kind, msg in st.session_state.pop("flash", []):
     getattr(st, kind)(msg)
 
-# --------------------------------------------------------------------------- #
-# Aperçu final (« phase 3 ») : ce qui vient d'être enregistré pour le cas, relu sur le disque
-# --------------------------------------------------------------------------- #
-review_key = f"review_{observer}_{run_id}"
-review_pos = st.session_state.get(review_key)
-if SHOW_REVIEW and review_pos is not None and review_pos in ratings and review_pos - 1 in ratings:
-    row1, row2 = ratings[review_pos - 1], ratings[review_pos]  # lignes du CSV, relues dans le fichier
-    entry = playlist[review_pos]
-    image, preseg_file = split_entry(entry)
-    saved_file = row2.get("fichier_correction_nifti", "")
-    shown_file = saved_file if saved_file and Path(saved_file).exists() else preseg_file
-    st.subheader(
-        f"Cas {review_pos // 2 + 1} / {len(playlist) // 2} — Aperçu final (phase 3) : segmentation enregistrée"
-        + ("" if blind else f" — {patient_label(entry)}")
-    )
-    st.caption(f"Lignes écrites dans `{RATINGS_FILE}` pour ce cas :")
-    cols = ["phase", "nb_blebs", "nb_blebs_final", "verdict_blebs", "voxels_blebs_initial", "voxels_blebs_corrige",
-            "phase2_ignoree", "export_nifti", "fichier_correction_nifti"]
-    st.dataframe([{c: (Path(r[c]).name if c == "fichier_correction_nifti" else r[c]) for c in cols} for r in (row1, row2)],
-                 hide_index=True)
-    try:
-        shown = load_case(image, shown_file, margin=CROP_MARGIN_VOX, max_voxels=MAX_VOXELS)
-    except Exception as e:
-        shown = None
-        st.error(f"Impossible de relire {Path(shown_file).name} : {e}")
-    review_value = None
-    if shown is not None:
-        blebs = {k: v for k, v in label_counts(shown["labels"]).items() if k >= BLEB_LABEL}
-        lines = [
-            f"Phase 1 : {BLEB_OPTIONS.get(int(row1['nb_blebs']), row1['nb_blebs'])}",
-            f"Segmentation enregistrée : {len(blebs)} bleb(s)",
-            *[f"  {label_info(k)[0]} : {v} voxels" for k, v in sorted(blebs.items())],
-            ("Fichier : " + Path(saved_file).name) if shown_file == saved_file
-            else "Fichier résultat introuvable : affichage de la pré-segmentation.",
-        ]
-        review_value = viewer_component(
-            scene_id=f"{entry}|review",
-            case_label=None if blind else patient_label(entry),
-            review={"lines": lines, "button": "Cas suivant ▶"},
-            dims=shown["dims"], spacing=shown["spacing"], center=shown["center"],
-            classes=[{"id": lab, "name": label_info(lab)[0], "color": label_info(lab)[1]} for lab in sorted(shown["present"])],
-            editable=False, bleb_label=BLEB_LABEL, parent_label=PARENT_LABEL, bleb_palette=BLEB_COLORS,
-            max_bleb_labels=MAX_BLEB_LABELS, viewer_version=_VIEWER_VERSION, height=VIEWER_HEIGHT,
-            key=f"viewer_{observer}_{run_id}", default=None, **shown["payload"],
-        )
-    save_key = f"last_save_{observer}_{run_id}"
-    go_on = bool(review_value) and review_value.get("scene_id") == f"{entry}|review" and review_value.get("save")
-    if shown is None or (go_on and st.session_state.get(save_key) != go_on):
-        if go_on:
-            st.session_state[save_key] = go_on
-        st.session_state.pop(review_key, None)  # on avance ; aucun retour possible
-        if shown is not None:
-            st.rerun()
-    st.stop()
-
 # --- Fin du test : page de remerciements + sauvegarde automatique du CSV ---
 if n_done == len(playlist):
     final_key = f"final_saved_{observer}_{run_id}_{playlist_path}"
@@ -605,10 +566,7 @@ phase_txt = (
     if phase == PHASE_COUNT
     else "Phase 2/2 : qualité de la segmentation des blebs (correction possible)"
 )
-st.subheader(
-    f"Cas {idx // 2 + 1} / {len(playlist) // 2} — {phase_txt}"
-    + ("" if blind else f" — {patient_label(current)}")
-)
+st.subheader(f"Cas {idx // 2 + 1} / {len(playlist) // 2} — {phase_txt}")   # nom du patient jamais affiché
 
 # --------------------------------------------------------------------------- #
 # Viewer (3 coupes + 3D)
@@ -638,7 +596,7 @@ if case is not None:
     # conserve le plein écran entre la phase 1 et la phase 2. La valeur renvoyée porte l'identifiant de l'image.
     viewer_value = viewer_component(
         scene_id=f"{current}|{int(editable)}",
-        case_label=None if blind else patient_label(current),
+        case_label=None,                    # nom du patient jamais affiché (étude en aveugle)
         eval_title=COUNT_QUESTION if phase == PHASE_COUNT else VERDICT_QUESTION,
         count_options=[{"value": k, "label": v} for k, v in BLEB_OPTIONS.items()] if phase == PHASE_COUNT else None,
         zero_hint=ZERO_HINT if SKIP_PHASE2_IF_ZERO_BLEBS else "",
@@ -738,6 +696,4 @@ if save_id and ready and st.session_state.get(save_key) != save_id:  # un clic s
     nxt = idx + (2 if skip_next else 1)
     if nxt < len(playlist):
         st.session_state[state_key] = nxt
-    if SHOW_REVIEW and phase == PHASE_SEG:  # phase 2 enregistrée : aperçu de ce qui a été enregistré (pas après « 0 bleb »)
-        st.session_state[f"review_{observer}_{run_id}"] = idx
     st.rerun()

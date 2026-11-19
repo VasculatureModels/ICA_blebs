@@ -13,9 +13,31 @@ Chaque cas se déroule en deux phases :
    ou à la gomme, directement sur les voxels. Sans choix, un bleb est gardé tel quel ; il peut être retouché
    (« Retoucher ») ou supprimé (« Supprimer »), et un bleb manquant peut être ajouté (« + Nouveau bleb »).
 
-Après la phase 2 (pas après « 0 bleb »), un **aperçu final** (« phase 3 ») montre ce qui vient d'être enregistré pour le cas : le masque
-relu sur le disque, le nombre de blebs qu'il contient et les deux lignes du CSV. Rien n'y est modifiable ; « Cas
-suivant » passe au cas suivant. Pour le retirer : `SHOW_REVIEW = False` dans `app_mpr.py`.
+Après la phase 2, on passe directement au cas suivant (l'aperçu final, « phase 3 », a été retiré le 19/11/2026).
+
+## Étude des observateurs : un jeu par identifiant
+
+Chaque observateur a son identifiant et sa playlist (jeu de 60 cas : 20 cas communs aux trois observateurs, pour
+mesurer leur accord, et 40 cas propres) :
+
+| Identifiant | Observateur | Playlist |
+|---|---|---|
+| `JB` | Julien Boucherit | `playlist_JB.txt` |
+| `GG` | Guillaume Geffroy | `playlist_GG.txt` |
+| `VL` | Vincent L'Allinec | `playlist_VL.txt` |
+
+Les découpes (images et segmentations) vont dans `images/`, à côté de `app_mpr.py` ; elles ne sont pas dans le dépôt.
+L'observateur lance l'application **sans argument**, saisit son identifiant (majuscules ou minuscules) et clique
+« Démarrer le test » : sa playlist s'ouvre. Un identifiant inconnu est refusé.
+
+```bash
+uv run streamlit run app_mpr.py
+```
+
+Les playlists sont lues dans le dossier de `app_mpr.py`, ou dans `BLEB_PLAYLIST_DIR`. Elles sont produites par
+`outils/tirer_jeux.py` (tirage au hasard, graine fixe ; voir l'en-tête du script), qui écrit aussi le groupe de
+chaque cas (`tirage_jeux.csv`). Le manifeste des découpes (`crops_manifest.csv`) ne doit jamais être donné aux
+observateurs.
 
 ## Installation et lancement
 
@@ -23,8 +45,8 @@ Avec [uv](https://docs.astral.sh/uv/getting-started/installation/) :
 
 ```bash
 uv sync
-uv run streamlit run app_mpr.py                      # playlist.txt du dépôt
-uv run streamlit run app_mpr.py -- ma_playlist.txt   # autre playlist
+uv run streamlit run app_mpr.py                      # étude : identifiant JB, GG ou VL -> sa playlist
+uv run streamlit run app_mpr.py -- ma_playlist.txt   # mode libre : tout identifiant, playlist donnée
 ```
 
 Pour une annotation de calibration où chaque bleb pré-segmenté doit être vu, `BLEB_SKIP_PHASE2=0` garde la
@@ -62,9 +84,10 @@ Les fichiers peuvent être en NRRD ou en NIfTI. L'image et la segmentation doive
   les choix par bleb de la phase 2 et le bouton « Enregistrer ». Rien n'est affiché sous le viewer ; un message
   éventuel (choix refusé, erreur d'export) apparaît en haut de la page.
 - **Plein écran.** Bouton « Plein écran », ou double-clic sur le panneau gauche (hors boutons et réglages) ; un
-  nouveau double-clic en sort. Il est conservé d'une image à l'autre, dans les trois phases.
-- **Nom du patient.** Il est affiché dans les deux phases, dans le titre et en haut du panneau du viewer. La case
-  « Masquer le nom du patient » de la barre latérale le cache (évaluation en aveugle).
+  nouveau double-clic en sort. Il est conservé d'une image à l'autre, dans les deux phases.
+- **Nom du patient.** Il n'est jamais affiché (évaluation en aveugle), ni en phase 1 ni en phase 2.
+- **Phase 1.** Pas de rangée d'outils dans le panneau (seule la navigation est possible : réticule, défilement,
+  zoom, fenêtrage, rotation 3D).
 - **Ordre aléatoire.** Les cas sont mélangés pour chaque passation ; la phase 1 d'un cas précède toujours sa phase 2.
 - **Pas de retour en arrière.** Une réponse enregistrée n'est plus modifiable : on avance toujours.
 - **« 0 bleb » en phase 1.** La phase 2 du cas est ignorée, et un NIfTI sans aucun bleb est enregistré comme résultat.
@@ -109,8 +132,10 @@ Les fichiers peuvent être en NRRD ou en NIfTI. L'image et la segmentation doive
 | `mpr_utils.py` | lecture des volumes, réorientation, export NIfTI |
 | `mpr_viewer/` | viewer MPR et 3D (composant Streamlit) |
 | `tests/test_app_mpr.py` | tests sur volumes synthétiques : `uv run python tests/test_app_mpr.py` |
+| `playlist_JB.txt`, `playlist_GG.txt`, `playlist_VL.txt` | jeux de l'étude (un par observateur) |
+| `outils/tirer_jeux.py` | tirage des jeux ; tests : `uv run python tests/test_tirer_jeux.py` |
+| `outils/verifier_sorties.py` | vérification des sorties d'une passation |
 | `pyproject.toml`, `uv.lock` | environnement uv ; `requirements.txt` reste disponible pour pip |
-| `Misc/` | scripts annexes |
 
 ## Vérifier ce qu'une passation a enregistré
 
@@ -140,3 +165,6 @@ l'ajout de `uv.lock`, c'est donc lui qui définit l'environnement de l'applicati
 - 17/11/2026, Fakhrielddine Bader : évaluation dans le panneau du viewer, phase 2 guidée, aperçu final (phase 3),
   vérificateur des sorties ; demandes de Florent Autrusseau : plus de bouton « Correct », « Retoucher » et
   « Supprimer », pinceau à 1 mm, suppression d'un bleb ajouté, double-clic pour le plein écran.
+- 19/11/2026, Fakhrielddine Bader : étude des observateurs — un jeu par identifiant (`JB`, `GG`, `VL` ; 60 cas dont
+  20 communs), outil de tirage `outils/tirer_jeux.py` ; nom du patient jamais affiché ; plus de rangée d'outils en
+  phase 1 ; aperçu final (phase 3) retiré ; données, réponses de test et scripts annexes retirés du dépôt.

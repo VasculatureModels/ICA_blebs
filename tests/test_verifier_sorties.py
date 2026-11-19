@@ -25,9 +25,10 @@ import verifier_sorties as V                 # noqa: E402
 from mpr_utils import load_case, pack        # noqa: E402
 
 
-def displayed(at):
-    """Nom du cas affiché (titre : « … — A (anévrisme 1) »)."""
-    return at.subheader[0].value.rsplit("— ", 1)[1].split(" (")[0]
+def displayed(at, w):
+    """Nom du cas affiché. Le nom du patient n'est plus à l'écran depuis le 19/11/2026 : il est retrouvé à partir
+    de la session (T.current_case)."""
+    return T.current_case(at, w, "recette")
 
 
 def viewer_case(w, name):
@@ -40,8 +41,10 @@ def play_session(w):
     """Joue une passation complète ; chaque cas reçoit son scénario, quel que soit l'ordre aléatoire."""
     at = T.started_app("recette")
     done = set()
-    while len(done) < 5:
-        name = displayed(at)
+    for _ in range(20):                                             # garde-fou : jamais de boucle sans fin
+        if len(done) == 5:
+            break
+        name = displayed(at, w)
         if name == "C":                                                   # « 0 bleb »
             T.answer(at, 0)
         elif name == "A":                                                 # aucun choix : blebs gardés

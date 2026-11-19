@@ -11,8 +11,9 @@ Vérifie : enregistrement des réponses et colonnes du CSV ; ordre aléatoire de
 phase 1 toujours avant phase 2, conservé à la reprise) ; « 0 bleb » : phase 2 ignorée et NIfTI sans bleb
 enregistré ; reprise d'une passation interrompue ; refus de reprise si la playlist a changé ; aucune réponse
 modifiable après coup ; bouton de démarrage masqué pendant le test ; évaluation dans le panneau du viewer
-(rien sous le viewer), nom du patient affiché ; verdict obligatoire par bleb en phase 2
-(« pas un bleb » retiré du masque enregistré, verdict incohérent avec les corrections refusé).
+(rien sous le viewer), nom du patient jamais affiché ; verdict par bleb en phase 2 (« Supprimer » retiré du
+masque enregistré, verdict incohérent avec les corrections refusé) ; pas d'aperçu final (phase 3) ;
+mode étude (19/11/2026) : chaque identifiant (JB, GG, VL) ouvre sa propre playlist, identifiant inconnu refusé.
 Imprime RESUME : X OK, Y FAIL ; code de sortie 1 si au moins un échec. Les lignes « missing ScriptRunContext »
 affichées par Streamlit pendant les tests sont normales (application lancée sans serveur).
 """
@@ -61,7 +62,7 @@ class Workdir:
         self.lines = []
         for c in cases:
             self.add(c, **kw)
-        self._old = (list(sys.argv), os.environ.get("BLEB_OUTPUT_DIR"))
+        self._old = (list(sys.argv), os.environ.get("BLEB_OUTPUT_DIR"), os.environ.get("BLEB_PLAYLIST_DIR"))
 
     def add(self, name, **kw):
         self.lines += write_case(self.root / "images", name, **kw)
@@ -78,10 +79,11 @@ class Workdir:
 
     def __exit__(self, *exc):
         sys.argv = self._old[0]
-        if self._old[1] is None:
-            os.environ.pop("BLEB_OUTPUT_DIR", None)
-        else:
-            os.environ["BLEB_OUTPUT_DIR"] = self._old[1]
+        for k, v in (("BLEB_OUTPUT_DIR", self._old[1]), ("BLEB_PLAYLIST_DIR", self._old[2])):
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         self._tmp.cleanup()
 
     def rows(self):
@@ -113,10 +115,9 @@ def started_app(observer="obs"):
 _CLICK = [0]
 
 
-def viewer_sends(at, stay_on_review=False, **value):
+def viewer_sends(at, **value):
     """Simule ce que le viewer renvoie (les tests ne pilotent pas le navigateur) : réponses du panneau
-    « Évaluation » et, avec save=True, un clic sur son bouton « Enregistrer ».
-    Si l'aperçu final (phase 3) s'affiche ensuite, il est passé avec « Cas suivant », sauf stay_on_review=True."""
+    « Évaluation » et, avec save=True, un clic sur son bouton « Enregistrer »."""
     if value.pop("save", False):
         _CLICK[0] += 1
         value["save"] = _CLICK[0]
@@ -125,8 +126,18 @@ def viewer_sends(at, stay_on_review=False, **value):
     assert not at.exception, at.exception
     at.session_state["_test_viewer_value"] = None      # le viewer de l'image suivante n'a encore rien renvoyé
     at.run()
-    if not stay_on_review and at.subheader and "Aperçu final" in at.subheader[0].value:
-        viewer_sends(at, save=True)                    # « Cas suivant »
+
+
+def current_case(at, w, observer="obs"):
+    """Nom du cas affiché (le nom du patient n'est plus à l'écran) : position courante de la session et ordre
+    aléatoire recalculé comme dans app_mpr.ordered_cases (graine « observateur|session »)."""
+    import random
+    run_id = at.session_state["run_id"]
+    idx = at.session_state[f"idx_{observer}_{run_id}_{(w.root / 'playlist.txt').resolve()}"]
+    order = list(range(len(w.lines) // 2))
+    random.Random(f"{observer}|{run_id}").shuffle(order)
+    seg = w.lines[2 * order[idx // 2] + idx % 2].split(";")[1].strip()
+    return Path(seg).name.split("__")[0]
 
 
 def phase(at):
@@ -212,18 +223,17 @@ def test_phase2_shown_after_zero_when_skip_disabled():
         del os.environ["BLEB_SKIP_PHASE2"]
 
 
-def test_nothing_under_the_viewer_and_patient_name_is_shown():
+def test_nothing_under_the_viewer_and_patient_name_is_hidden():
     with Workdir(["RCAN_01_311_S_0.4__ICA_2"], two_blebs=True) as w:
         at = started_app()
+        assert not at.sidebar.checkbox                              # plus d'option « Masquer le nom du patient »
         for where in ("Phase 1/2", "Phase 2/2"):
             assert where in phase(at)
             assert not at.radio and not at.main.button           # ni question ni bouton sous le viewer
             assert not any("valuation" in m.value for m in at.markdown)
-            assert "RCAN_01_311_S_0.4 (anévrisme 2)" in phase(at) and "_blebs" not in phase(at)   # nom du patient
+            assert "RCAN" not in phase(at) and "anévrisme" not in phase(at)    # nom du patient jamais affiché
             if where == "Phase 1/2":
                 answer(at, 2)
-        at.sidebar.checkbox[0].set_value(True).run()              # option d'aveugle cochée : nom masqué
-        assert "RCAN" not in phase(at)
         assert w.rows()[0]["nb_blebs"] == "2"
 
 
@@ -282,23 +292,16 @@ def test_counted_one_bleb_but_none_in_final_mask_is_visible_in_csv():
         assert rows[1]["voxels_blebs_corrige"] == "" and rows[1]["verdict_blebs"] == ""
 
 
-def test_final_preview_shows_what_was_saved_and_cannot_go_back():
+def test_no_final_preview_next_case_directly():
+    """Phase 3 retirée : après la phase 2, le cas suivant s'affiche directement (phase 1)."""
     with Workdir(["A__ICA_1", "B__ICA_1"], two_blebs=True) as w:
         at = started_app()
         answer(at, 2)
-        viewer_sends(at, stay_on_review=True, verdicts={"4": "supprime"}, save=True)
-        assert "Aperçu final" in phase(at) and "Cas 1 / 2" in phase(at)       # phase 3 du cas qui vient d'être enregistré
-        table = at.dataframe[0].value
-        assert list(table["phase"]) == ["comptage", "segmentation"]             # les 2 lignes du CSV du cas
-        assert list(table["nb_blebs"]) == ["2", ""] and list(table["nb_blebs_final"]) == ["", "1"]
-        assert table["fichier_correction_nifti"][1].endswith("_corrige.nii.gz")
-        assert not at.button and len(w.rows()) == 2                              # aucun bouton de retour, rien de réécrit
-        at.run()
-        assert "Aperçu final" in phase(at)                                       # reste affiché tant qu'on n'avance pas
-        viewer_sends(at, save=True)                                              # « Cas suivant »
-        assert "Cas 2 / 2" in phase(at) and "Phase 1/2" in phase(at) and len(w.rows()) == 2
-        viewer_sends(at, stay_on_review=True, n_blebs=0, save=True)              # « 0 bleb » : pas d'aperçu
-        assert not any("Aperçu final" in s.value for s in at.subheader)
+        save(at, {4: "supprime"})
+        assert "Cas 2 / 2" in phase(at) and "Phase 1/2" in phase(at), phase(at)
+        assert not any("Aperçu" in s.value or "phase 3" in s.value.lower() for s in at.subheader)
+        assert not at.dataframe and not at.button and len(w.rows()) == 2
+        answer(at, 0)                                              # « 0 bleb » : fin du test
         assert any("Merci" in t.value for t in at.title) and w.rows()[-1]["phase2_ignoree"] == "oui"
 
 
@@ -397,6 +400,53 @@ def test_no_way_back_and_no_start_button_during_test():
         save(at)
         assert "Cas 2 / 2" in phase(at) and not at.button          # impossible de revenir au cas 1
         assert len(w.rows()) == 2
+
+
+class StudyWorkdir(Workdir):
+    """Mode étude : lancement sans playlist en argument ; playlist_JB/GG/VL.txt dans BLEB_PLAYLIST_DIR."""
+
+    def __init__(self, sets):
+        super().__init__([])
+        for obs, cases in sets.items():
+            lines = []
+            for c in cases:
+                lines += write_case(self.root / "images", c)
+            (self.root / f"playlist_{obs}.txt").write_text("# jeu " + obs + "\n" + "\n".join(lines) + "\n",
+                                                           encoding="utf-8")
+
+    def __enter__(self):
+        sys.argv = ["app_mpr.py"]
+        os.environ["BLEB_OUTPUT_DIR"] = str(self.root / "sorties")
+        os.environ["BLEB_PLAYLIST_DIR"] = str(self.root)
+        return self
+
+
+def test_study_mode_each_identifier_opens_its_own_playlist():
+    sets = {"JB": ["C1__ICA_1", "J1__ICA_1"], "GG": ["C1__ICA_1", "G1__ICA_1"], "VL": ["C1__ICA_1", "V1__ICA_1"]}
+    with StudyWorkdir(sets) as w:
+        for typed, obs in (("jb", "JB"), (" GG ", "GG"), ("VL", "VL")):
+            at = started_app(typed)
+            assert any(OBS_NAMES[obs] in c.value for c in at.sidebar.caption), [c.value for c in at.sidebar.caption]
+            assert "Cas 1 / 2" in phase(at)
+            answer(at, 0)
+            answer(at, 0)
+            assert any("Merci" in t.value for t in at.title)
+        rows = w.rows()
+        assert {r["observateur"] for r in rows} == {"JB", "GG", "VL"}
+        for obs, cases in sets.items():
+            seen = {Path(r["segmentation"]).name.split(".")[0].replace("_blebs", "") for r in rows if r["observateur"] == obs}
+            assert seen == set(cases), (obs, seen)                 # uniquement les cas de son jeu
+
+
+def test_study_mode_unknown_identifier_refused():
+    with StudyWorkdir({"JB": ["C1__ICA_1"]}) as w:
+        at = new_app("XX")
+        assert any("Identifiant inconnu" in e.value for e in at.sidebar.error)
+        assert button(at, "Démarrer le test").disabled
+        assert not at.subheader and not (w.root / "sorties" / "notes_observateurs.csv").exists()
+
+
+OBS_NAMES = {"JB": "Julien Boucherit", "GG": "Guillaume Geffroy", "VL": "Vincent L'Allinec"}
 
 
 def main():
