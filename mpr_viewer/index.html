@@ -31,20 +31,48 @@
   .cls input[type=color] { width: 26px; height: 20px; padding: 0; border: 0; background: none; }
   .small { font-size: 11.5px; color: #bbb; margin-top: 6px; line-height: 1.35; }
   h4 { margin: 4px 0 2px; font-size: 12px; color: #9ab; text-transform: uppercase; letter-spacing: .04em; }
+  #caseLabel { font-weight: 600; font-size: 12.5px; color: #ffd24d; margin: 0 0 8px; overflow-wrap: anywhere; }
+  #evalTitle { margin: 4px 0 6px; font-size: 13px; overflow-wrap: anywhere; }
+  #evalOpts label { display: flex; align-items: center; gap: 7px; margin: 0; padding: 5px 6px; border-radius: 5px; cursor: pointer; font-size: 13px; }
+  #evalOpts label:hover { background: #2c2c30; }
+  #evalOpts label.on { background: #2f6fed; }
+  #evalOpts .vname { display: flex; align-items: center; gap: 6px; margin: 7px 0 0; font-size: 12.5px; }
+  #evalOpts .row button { padding: 4px 2px; font-size: 11.5px; }
+  #dispBox summary { cursor: pointer; margin: 4px 0 2px; font-size: 12px; color: #9ab; text-transform: uppercase; letter-spacing: .04em; }
+  #toolTitle { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-weight: 600; color: #fff; }
+  #evalOpts .vname .tag { color: #9ab; font-size: 11px; }
+  #evalMsg { display: none; margin-top: 8px; padding: 6px 7px; border-radius: 5px; background: #4a2f12; border: 1px solid #c98a2b; color: #ffd9a0; font-size: 12px; white-space: pre-wrap; }
+  #evalSave { width: 100%; margin-top: 8px; padding: 7px 6px; font-size: 13px; font-weight: 600; background: #c62828; border-color: #c62828; }
+  #evalSave:hover { background: #d84343; }
+  #evalSave:disabled { background: #3a3a3e; border-color: #555; color: #888; cursor: not-allowed; }
   #msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: #ddd; padding: 30px; font-size: 14px; pointer-events: none; z-index: 5; }
 </style>
 </head>
 <body>
 <div id="wrap">
   <div id="panel">
+    <div id="caseLabel" style="display:none"></div>
+    <div id="evalBox" style="display:none">
+      <h4>Évaluation</h4>
+      <div id="evalTitle"></div>
+      <div id="evalOpts"></div>
+      <div id="evalHint" class="small"></div>
+      <button id="evalAdd" style="width:100%; margin-top:6px; display:none">+ Nouveau bleb</button>
+      <div id="evalMsg"></div>
+      <button id="evalSave" disabled>💾 Enregistrer</button>
+      <hr>
+    </div>
     <div class="row" id="modes">
       <button data-mode="navigate" class="on" title="Raccourci : N">Navigation</button>
       <button data-mode="paint" title="Raccourci : B">Pinceau</button>
       <button data-mode="erase" title="Raccourci : E">Gomme</button>
     </div>
     <div id="edit">
-      <label>Taille : <span id="sizeVal">3</span> mm <input id="size" type="range" min="0.5" max="20" step="0.5" value="3"></label>
-      <label><input id="sphere" type="checkbox"> Pinceau sphérique (3D)</label>
+      <div id="toolTitle" class="vname" style="display:none"></div>
+      <label>Taille : <span id="sizeVal">1</span> mm <input id="size" type="range" min="0.5" max="20" step="0.5" value="1"></label>
+      <!-- Pinceau sphérique retiré du panneau (16/11/2026) : le pinceau peint seulement dans la coupe affichée. -->
+      <input id="sphere" type="checkbox" style="display:none">
+      <div id="freeTools">
       <div class="small">Zone peignable</div>
       <select id="zone">
         <option value="aneurysm" selected>Anévrisme et blebs</option>
@@ -55,11 +83,13 @@
       <div class="row wrap" id="brushLabels"></div>
       <button id="addBleb" style="width:100%">+ Nouveau bleb</button>
       <label><input id="eraseSel" type="checkbox"> Gomme : seulement le bleb sélectionné</label>
+      </div>
       <div class="row"><button id="undo" title="Ctrl+Z">Annuler</button><button id="reset">Réinitialiser</button></div>
       <div id="stats" class="small"></div>
     </div>
-    <hr>
-    <h4>Affichage</h4>
+    <hr id="editSep">
+    <details id="dispBox">
+    <summary>Affichage</summary>
     <div id="classes"></div>
     <label>Opacité de la segmentation <input id="alpha" type="range" min="0" max="100" value="45"></label>
     <label>Niveau <input id="wlc" type="range" min="0" max="255" value="128"></label>
@@ -67,6 +97,7 @@
     <div class="row"><button id="wlAuto">Contraste auto</button><button id="home">Réinitialiser les vues</button></div>
     <label><input id="auto3d" type="checkbox" checked> Actualiser la 3D après chaque trait</label>
     <div class="row"><button id="refresh3d">Actualiser la 3D</button><button id="full">Plein écran</button></div>
+    </details>
     <div id="help" class="small"></div>
     <div id="ver" class="small"></div>
   </div>
@@ -159,6 +190,9 @@ async function build(args) {
   }
   const blebIds = () => Object.keys(classes).map(Number).filter((id) => id >= BLEB).sort((a, b) => a - b);
   let brushLabel = blebIds().length ? blebIds()[0] : BLEB;
+  // Mode guidé (phase 2 avec avis par bleb) : les outils n'apparaissent que pour le bleb en cours de correction.
+  const guided = editable && !!args.verdict_blebs;
+  let activeBleb = null;
 
   // --- état ---------------------------------------------------------------------------------------
   const cur = (args.center || [nx >> 1, ny >> 1, nz >> 1]).slice();
@@ -226,13 +260,14 @@ async function build(args) {
   const initCounts = MPR.countByLabel(v.init, BLEB);
   function updateStats() {
     const curC = MPR.countByLabel(v.labels, BLEB);
-    const ids = Array.from(new Set(Object.keys(curC).concat(Object.keys(initCounts)))).map(Number).sort((a, b) => a - b);
+    let ids = Array.from(new Set(Object.keys(curC).concat(Object.keys(initCounts)))).map(Number).sort((a, b) => a - b);
+    if (guided) ids = activeBleb === null ? [] : [activeBleb];   // mode guidé : seulement le bleb en cours de correction
     const lines = ids.map((id) => (classes[id] ? classes[id].name : "Label " + id) + " : " + (curC[id] || 0) + " voxels (" +
       ((curC[id] || 0) * voxMm3).toFixed(1) + " mm³) — initial : " + (initCounts[id] || 0));
     const b = classes[brushLabel];
     $("stats").style.whiteSpace = "pre-wrap";
-    $("stats").textContent = (editable && b ? "Pinceau : " + b.name + " (label " + brushLabel + ")\n" : "") +
-      (lines.length ? lines.join("\n") : "Aucun bleb") + (hint ? "\n⚠ " + hint : "");
+    $("stats").textContent = (editable && b && !guided ? "Pinceau : " + b.name + " (label " + brushLabel + ")\n" : "") +
+      (lines.length ? lines.join("\n") : (guided ? "" : "Aucun bleb")) + (hint ? "\n⚠ " + hint : "");
   }
 
   // --- 3D (three.js, facultatif) ------------------------------------------------------------------------------------
@@ -426,15 +461,30 @@ async function build(args) {
 
   // --- envoi à Python -----------------------------------------------------------------------------------------------
   let sendTimer = null;
+  // Réponses données dans le panneau (bloc « Évaluation ») : nombre de blebs en phase 1, avis par bleb en phase 2.
+  let chosenCount = null;
+  const chosenVerdicts = {};
+  const addedBlebs = [];                                      // blebs ajoutés par l'observateur (phase 2)
+  // Tout part dans une seule valeur : réponses du panneau, masque corrigé (phase 2) et, si save, l'ordre d'enregistrer.
+  async function pushValue(save) {
+    const val = { scene_id: args.scene_id };
+    if (chosenCount !== null) val.n_blebs = chosenCount;
+    if (args.verdict_blebs) val.verdicts = Object.assign({}, chosenVerdicts);
+    if (editable) {
+      const gz = await MPR.gzip(v.labels);
+      Object.assign(val, { edited: MPR.isEdited(v), counts: MPR.countByLabel(v.labels, BLEB), labels_gz: MPR.bytesToB64(gz) });
+    }
+    if (save) val.save = Date.now();
+    ST.value(val);
+  }
   async function sendValue() {
     if (!editable) return;
-    const gz = await MPR.gzip(v.labels);
-    ST.value({ scene_id: args.scene_id, edited: MPR.isEdited(v), counts: MPR.countByLabel(v.labels, BLEB), labels_gz: MPR.bytesToB64(gz) });
+    await pushValue(false);
   }
   const scheduleSend = () => { clearTimeout(sendTimer); sendTimer = setTimeout(sendValue, 600); };
 
   // --- édition -----------------------------------------------------------------------------------------------------------
-  const opts = () => ({ label: brushLabel, erase: mode === "erase", zone: zoneEl.value, eraseSel: eraseSelEl.checked });
+  const opts = () => ({ label: brushLabel, erase: mode === "erase", zone: guided ? "parent" : zoneEl.value, eraseSel: guided || eraseSelEl.checked });
   function coords(p, ev) {
     const r = p.canvas.getBoundingClientRect(), px = ev.clientX - r.left, py = ev.clientY - r.top;
     layout(p);
@@ -572,6 +622,7 @@ async function build(args) {
   const modeBtns = document.querySelectorAll("#modes button");
   function setMode(m) {
     if (!editable && m !== "navigate") return;
+    if (guided && activeBleb === null && m !== "navigate") return;   // pas d'outil tant qu'aucun bleb n'est en correction
     mode = m;
     modeBtns.forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
     $("help").textContent = HELP[m];
@@ -588,6 +639,9 @@ async function build(args) {
     b.style.display = editable || b.dataset.mode === "navigate" ? "" : "none";
     on(b, "click", () => setMode(b.dataset.mode));
   });
+  // Phase 1 (sans correction) : « Navigation » serait le seul outil ; la rangée d'outils n'est pas affichée
+  // (19/11/2026, Fakhrielddine Bader). Le mode reste « navigate », souris et raccourcis inchangés.
+  $("modes").style.display = editable ? "" : "none";
   const brushBox = $("brushLabels");
   function renderBrushChoices() {
     brushBox.innerHTML = "";
@@ -604,13 +658,15 @@ async function build(args) {
 
   const clsBox = $("classes");
   clsBox.innerHTML = "";
+  const clsRows = {};
   function addClassRow(id) {
     const cl = classes[id], row = document.createElement("div"); row.className = "cls";
+    clsRows[id] = row;
     const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = cl.visible;
     const col = document.createElement("input"); col.type = "color"; col.value = cl.hex;
     const nm = document.createElement("span"); nm.textContent = cl.name;
     row.append(cb, col, nm); clsBox.appendChild(row);
-    if (editable && id >= BLEB) { nm.style.cursor = "pointer"; nm.title = "Cliquer pour peindre avec ce bleb"; on(nm, "click", () => { setBrush(id); if (mode === "navigate") setMode("paint"); }); }
+    if (editable && !guided && id >= BLEB) { nm.style.cursor = "pointer"; nm.title = "Cliquer pour peindre avec ce bleb"; on(nm, "click", () => { setBrush(id); if (mode === "navigate") setMode("paint"); }); }
     on(cb, "change", () => { classes[id].visible = cb.checked; rebuildColors(); update3DColors(); requestDraw(); });
     on(col, "input", () => { classes[id].hex = col.value; rebuildColors(); update3DColors(); renderBrushChoices(); requestDraw(); });
   }
@@ -621,14 +677,31 @@ async function build(args) {
     if (next - BLEB + 1 > MAXB) { hint = "Nombre maximal de blebs atteint (" + MAXB + ")."; updateStats(); return; }
     ensureClass(next); addClassRow(next); setBrush(next);
   });
-  $("edit").style.display = editable ? "block" : "none";
+  $("edit").style.display = editable && !guided ? "block" : "none";
+  $("freeTools").style.display = guided ? "none" : "";
+  $("toolTitle").style.display = guided ? "" : "none";
+  $("modes").style.display = guided ? "none" : "";
+  $("editSep").style.display = guided ? "none" : "";
+  $("dispBox").open = !guided;   // « Affichage » : ouvert en phase 1, replié en phase 2 (un clic sur le titre l'ouvre)
   if (editable) renderBrushChoices();
 
   on($("undo"), "click", () => { if (MPR.undo(v)) { updateStats(); scheduleSend(); schedule3D(); requestDraw(); } });
-  on($("reset"), "click", () => { MPR.resetAll(v); hint = ""; updateStats(); scheduleSend(); schedule3D(); requestDraw(); });
+  // Phase 2 guidée : la réinitialisation ne touche que le bleb en cours de correction.
+  $("reset").textContent = guided ? "Réinitialiser ce bleb" : "Réinitialiser";
+  $("undo").title = "Défait le dernier coup de pinceau ou de gomme (Ctrl+Z)";
+  on($("reset"), "click", () => {
+    if (guided) { if (activeBleb !== null) MPR.resetLabel(v, activeBleb); } else MPR.resetAll(v);
+    hint = ""; updateStats(); scheduleSend(); schedule3D(); requestDraw();
+  });
   on($("home"), "click", () => { for (const pl of PLANES) panes[pl].view = { zoom: 1, px: 0, py: 0 }; if (three) three.home(); requestDraw(); });
   on($("refresh3d"), "click", () => rebuild3D());
   on($("auto3d"), "change", () => {});
+  // Double-clic sur le panneau gauche (hors boutons et réglages) : plein écran, et retour au double-clic suivant.
+  on($("panel"), "dblclick", (e) => {
+    if (e.target.closest("button, input, select, label, summary, a")) return;
+    const w = $("wrap");
+    if (document.fullscreenElement) document.exitFullscreen(); else if (w.requestFullscreen) w.requestFullscreen();
+  });
   on($("full"), "click", () => { const w = $("wrap"); if (document.fullscreenElement) document.exitFullscreen(); else if (w.requestFullscreen) w.requestFullscreen(); });
 
   const onKey = (e) => {
@@ -636,7 +709,7 @@ async function build(args) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k === "n") setMode("navigate"); else if (k === "b") setMode("paint"); else if (k === "e") setMode("erase");
-    else if (editable && /^[1-9]$/.test(k)) { const id = blebIds()[parseInt(k, 10) - 1]; if (id !== undefined) { setBrush(id); if (mode === "navigate") setMode("paint"); } }
+    else if (editable && !guided && /^[1-9]$/.test(k)) { const id = blebIds()[parseInt(k, 10) - 1]; if (id !== undefined) { setBrush(id); if (mode === "navigate") setMode("paint"); } }
     else if ((k === "arrowup" || k === "arrowdown") && hoverPlane) {
       const p = panes[hoverPlane], fixed = p.info.fixed, n = [v.nx, v.ny, v.nz][fixed];
       cur[fixed] = Math.max(0, Math.min(n - 1, cur[fixed] + (k === "arrowdown" ? 1 : -1)));
@@ -649,6 +722,165 @@ async function build(args) {
   if (typeof ResizeObserver !== "undefined") { ro = new ResizeObserver(() => resizePanes()); ro.observe($("grid")); }
 
   // --- démarrage -----------------------------------------------------------------------------------------------------------------------
+  // --- bloc « Évaluation » du panneau : nom du patient, question ou avis par bleb, bouton « Enregistrer » -----------------
+  // Auteurs de ce bloc : Fakhrielddine Bader, Florent Autrusseau (16/11/2026).
+  $("caseLabel").textContent = args.case_label || "";
+  $("caseLabel").style.display = args.case_label ? "" : "none";
+  const evalOpts = $("evalOpts"), evalSave = $("evalSave"), verdictBlebs = args.verdict_blebs || null;
+  evalOpts.innerHTML = "";
+  $("evalHint").textContent = "";
+  const review = args.review || null;                          // aperçu final : résumé de ce qui a été enregistré
+  $("evalBox").style.display = (args.count_options || verdictBlebs || review) ? "" : "none";
+  $("evalTitle").style.whiteSpace = "pre-wrap";
+  $("evalTitle").textContent = review ? review.lines.join("\n") : (args.eval_title || "");
+  let saving = false, confirmed = null;
+  const showMsg = (text) => { $("evalMsg").textContent = text || ""; $("evalMsg").style.display = text ? "block" : "none"; };
+  showMsg("");
+  // Contrôles avant l'enregistrement de la phase 2. Renvoie { block: [...], warn: "..." } :
+  //  - block : avis incohérent avec ce qui a été fait (rien n'est envoyé) ;
+  //  - warn  : nombre de blebs différent de celui compté en phase 1 (un second clic confirme).
+  const checkPhase2 = () => {
+    const changed = MPR.changedByLabel(v), counts = MPR.countByLabel(v.labels, BLEB), block = [];
+    for (const b of verdictBlebs) {
+      const verdict = chosenVerdicts[b.id], n = changed[b.id] || 0;
+      if (verdict === "retouche" && !n) block.push(b.name + " : aucune retouche n'a été faite. Retouchez-le, ou cliquez de nouveau sur « Retoucher » pour annuler ce choix.");
+      else if (!verdict && n) block.push(b.name + " : il a été modifié sans que « Retoucher » soit choisi.");
+    }
+    const finalCount = Object.keys(counts).map(Number).filter((id) => counts[id] > 0 && chosenVerdicts[id] !== "supprime").length;
+    const exp = args.expected_count, differs = exp === null || exp === undefined ? false : (exp >= args.count_open_end ? finalCount < exp : finalCount !== exp);
+    const warn = differs ? "En phase 1, vous avez compté " + args.expected_label + ". La segmentation que vous enregistrez en contient " +
+      finalCount + ".\nSi c'est bien votre choix, cliquez de nouveau sur « Enregistrer »." : "";
+    for (const id of addedBlebs) {                           // bleb ajouté mais jamais dessiné (ou trait hors anévrisme)
+      if (!(counts[id] > 0)) block.push((classes[id] ? classes[id].name : "Bleb") + " (ajouté) est vide : " +
+        "dessinez-le sur l'anévrisme, ou cliquez « Supprimer » sur sa ligne.");
+    }
+    return { block, warn, key: finalCount + "|" + JSON.stringify(chosenVerdicts) };
+  };
+  const refreshSave = () => {
+    const ready = review ? true : args.count_options ? chosenCount !== null : !!verdictBlebs;   // phase 2 : sans choix = gardé
+    evalSave.disabled = saving || !ready;
+    evalSave.textContent = saving ? (review ? "…" : "Enregistrement…") : (review ? review.button : "💾 Enregistrer");
+  };
+  if (args.count_options) {                                   // phase 1 : nombre de blebs
+    for (const o of args.count_options) {
+      const lab = document.createElement("label"), inp = document.createElement("input");
+      inp.type = "radio"; inp.name = "nblebs"; inp.value = String(o.value);
+      lab.appendChild(inp); lab.appendChild(document.createTextNode(o.label));
+      on(inp, "change", () => {
+        chosenCount = o.value;
+        for (const l of evalOpts.children) l.classList.toggle("on", l === lab);
+        $("evalHint").textContent = o.value === 0 ? (args.zero_hint || "") : "";
+        refreshSave();
+      });
+      evalOpts.appendChild(lab);
+    }
+  } else if (verdictBlebs) {                                  // phase 2 : un avis par bleb pré-segmenté
+    const origHex = {}, rowsOf = {}, added = addedBlebs;
+    // Outils de correction : visibles seulement pour le bleb « activeBleb » (pinceau = ce bleb, gomme = ce bleb seul).
+    const showTools = (id) => {
+      activeBleb = id;
+      $("edit").style.display = id === null ? "none" : "block";
+      $("modes").style.display = id === null ? "none" : "";
+      $("editSep").style.display = id === null ? "none" : "";
+      for (const k in rowsOf) rowsOf[k].name.style.outline = Number(k) === id ? "1px solid #ffd24d" : "";
+      if (id === null) { setMode("navigate"); return; }
+      const t = $("toolTitle"); t.innerHTML = "";
+      const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = origHex[id] || classes[id].hex;
+      t.appendChild(sw); t.appendChild(document.createTextNode("Retouche : " + classes[id].name));
+      setBrush(id);
+      if (mode === "navigate") setMode("paint");
+    };
+    // « Supprimer » (bleb pré-segmenté) : le bleb est rendu tout de suite à l'anévrisme, on le voit disparaître ;
+    // son nom est barré, et un second clic sur « Supprimer » le rétablit.
+    // Un bleb ajouté, lui, est supprimé tout de suite et en entier (voxels rendus à l'anévrisme, ligne retirée).
+    const markDeleted = (id, on) => {
+      const r = rowsOf[id];
+      if (r) { r.name.style.textDecoration = on ? "line-through" : ""; r.name.style.opacity = on ? "0.55" : ""; }
+      if (clsRows[id]) { clsRows[id].style.opacity = on ? "0.4" : ""; clsRows[id].title = on ? "Bleb supprimé" : ""; }
+    };
+    const removeAdded = (id) => {
+      if (activeBleb === id) showTools(null);
+      MPR.resetLabel(v, id);
+      const r = rowsOf[id];
+      if (r) { r.name.remove(); r.row.remove(); delete rowsOf[id]; }
+      if (clsRows[id]) { clsRows[id].remove(); delete clsRows[id]; }
+      delete classes[id]; delete origHex[id];
+      const k = added.indexOf(id); if (k >= 0) added.splice(k, 1);
+      rebuildColors(); update3DColors(); updateStats(); scheduleSend(); schedule3D(); requestDraw();
+    };
+    const addRow = (b, isNew) => {
+      origHex[b.id] = b.color;
+      const name = document.createElement("div"), row = document.createElement("div");
+      name.className = "vname"; row.className = "row";
+      const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = b.color;
+      name.appendChild(sw); name.appendChild(document.createTextNode(b.name));
+      rowsOf[b.id] = { name, row };
+      if (isNew) {                                             // bleb ajouté par l'observateur : pas d'avis, seulement les outils
+        const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = "(ajouté)"; name.appendChild(tag);
+        const draw = document.createElement("button"); draw.textContent = "Dessiner";
+        on(draw, "click", () => showTools(b.id));
+        const del = document.createElement("button"); del.textContent = "Supprimer";
+        on(del, "click", () => removeAdded(b.id));
+        row.append(draw, del);
+      } else {
+        for (const o of args.verdict_options) {
+          const btn = document.createElement("button");
+          btn.textContent = o.label; btn.dataset.verdict = o.value;
+          on(btn, "click", () => {
+            showMsg("");
+            const undo = chosenVerdicts[b.id] === o.value;      // second clic sur le même choix : on l'annule
+            if (chosenVerdicts[b.id] === "retouche" && !(o.value === "retouche" && !undo)) {
+              MPR.resetLabel(v, b.id);                           // quitter « Retoucher » annule les retouches de ce bleb
+              updateStats(); scheduleSend(); schedule3D(); requestDraw();
+            }
+            const was = chosenVerdicts[b.id];
+            if (undo) delete chosenVerdicts[b.id]; else chosenVerdicts[b.id] = o.value;
+            const now = chosenVerdicts[b.id];
+            if (was === "supprime" && now !== "supprime") { MPR.restoreLabel(v, b.id); markDeleted(b.id, false); }
+            if (now === "supprime" && was !== "supprime") { MPR.hideLabel(v, b.id); markDeleted(b.id, true); }
+            if (was === "supprime" || now === "supprime") { updateStats(); scheduleSend(); schedule3D(); requestDraw(); }
+            for (const x of row.children) x.classList.toggle("on", !undo && x === btn);
+            if (!undo && o.value === "retouche") showTools(b.id);
+            else if (activeBleb === b.id) showTools(null);
+            refreshSave();
+          });
+          row.appendChild(btn);
+        }
+      }
+      evalOpts.appendChild(name); evalOpts.appendChild(row);
+    };
+    for (const b of verdictBlebs) addRow(b, false);
+    $("evalHint").textContent = verdictBlebs.length ? (args.verdict_hint || "") : (args.no_bleb_hint || "");
+    const evalAdd = $("evalAdd");
+    on(evalAdd, "click", () => {
+      // premier label libre : jamais celui d'un bleb pré-segmenté (même supprimé), ni d'un bleb ajouté encore présent
+      const used = new Set(verdictBlebs.map((b) => b.id).concat(added));
+      let next = BLEB; while (used.has(next)) next++;
+      if (next - BLEB + 1 > MAXB) { $("evalHint").textContent = "Nombre maximal de blebs atteint (" + MAXB + ")."; return; }
+      const cl = ensureClass(next); addClassRow(next); added.push(next);
+      addRow({ id: next, name: cl.name, color: cl.hex }, true);
+      showTools(next);
+    });
+  }
+  $("evalAdd").style.display = verdictBlebs ? "" : "none";
+  on(evalSave, "click", async () => {
+    if (evalSave.disabled) return;
+    if (verdictBlebs) {
+      const chk = checkPhase2();
+      if (chk.block.length) { showMsg("⚠ " + chk.block.join("\n⚠ ")); return; }
+      if (chk.warn && confirmed !== chk.key) { confirmed = chk.key; showMsg("⚠ " + chk.warn); return; }
+    }
+    showMsg("");
+    saving = true; refreshSave();
+    clearTimeout(sendTimer);
+    await pushValue(true);                                    // Python enregistre, puis affiche l'image suivante
+    // Même image encore là (avis refusé par Python) : on peut recliquer. Si une autre image est arrivée entre-temps,
+    // ce rappel est annulé avec le reste de l'ancienne scène.
+    const t = setTimeout(() => { saving = false; refreshSave(); }, 2500);
+    cleanups.push(() => clearTimeout(t));
+  });
+  refreshSave();
+
   $("ver").textContent = "viewer " + (args.viewer_version || "?") + " · " + nx + "×" + ny + "×" + nz + " voxels · " +
     v.sx.toFixed(2) + "×" + v.sy.toFixed(2) + "×" + v.sz.toFixed(2) + " mm" + (imageBytes ? "" : " · sans image");
   try { await loadLibs(); init3D(); } catch (err) { $("pane-3d").appendChild(Object.assign(document.createElement("div"), { textContent: "3D indisponible : " + err.message, className: "small" })); }

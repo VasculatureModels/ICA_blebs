@@ -100,6 +100,7 @@
   MPR.canPaint = function (v, c, zone) {
     if (zone === "everywhere") return true;
     if (zone === "mask") return c > 0;
+    if (zone === "parent") return c === v.PARENT;   // phase 2 guidée : le pinceau ne prend que sur l'anévrisme, jamais sur un autre bleb
     return c === v.PARENT || c >= v.BLEB;
   };
 
@@ -157,6 +158,44 @@
     return true;
   };
   MPR.resetAll = function (v) { v.labels.set(v.init); v.undoStack.length = 0; };
+  // Remet un seul bleb dans son état d'origine (un bleb ajouté disparaît) ; les autres blebs ne bougent pas, sauf
+  // là où ils occupaient un voxel d'origine de ce bleb. Compte comme un trait : « Annuler » peut le défaire.
+  MPR.resetLabel = function (v, id) {
+    MPR.beginStroke(v);
+    for (let i = 0; i < v.n; i++) {
+      const was = v.init[i] === id, is = v.labels[i] === id;
+      if (was && !is) setVoxel(v, i, id);
+      else if (!was && is) setVoxel(v, i, v.base[i]);
+    }
+    return MPR.endStroke(v);
+  };
+  // « Supprimer » un bleb pré-segmenté (phase 2) : ses voxels sont rendus tout de suite à l'anévrisme, à l'écran
+  // comme dans le masque envoyé. Hors historique « Annuler » (vidé), pour qu'un « Annuler » ne le fasse pas revenir.
+  // Auteurs de ce bloc : Fakhrielddine Bader, Florent Autrusseau (17/11/2026).
+  MPR.hideLabel = function (v, id) {
+    let n = 0;
+    for (let i = 0; i < v.n; i++) if (v.labels[i] === id) { v.labels[i] = v.base[i]; n++; }
+    v.undoStack.length = 0;
+    return n;
+  };
+  // Annule la suppression : le bleb retrouve ses voxels d'origine (là où ils sont encore à l'anévrisme).
+  MPR.restoreLabel = function (v, id) {
+    let n = 0;
+    for (let i = 0; i < v.n; i++) if (v.init[i] === id && v.labels[i] === v.base[i]) { v.labels[i] = id; n++; }
+    v.undoStack.length = 0;
+    return n;
+  };
+  // Nombre de voxels par lesquels chaque bleb diffère de son état d'origine : { label: n }.
+  MPR.changedByLabel = function (v) {
+    const m = {};
+    for (let i = 0; i < v.n; i++) {
+      const a = v.init[i], b = v.labels[i];
+      if (a === b) continue;
+      if (a >= v.BLEB) m[a] = (m[a] || 0) + 1;
+      if (b >= v.BLEB) m[b] = (m[b] || 0) + 1;
+    }
+    return m;
+  };
   MPR.isEdited = function (v) {
     for (let i = 0; i < v.n; i++) if (v.labels[i] !== v.init[i]) return true;
     return false;
