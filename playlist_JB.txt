@@ -1,16 +1,12 @@
-# Étude des observateurs : jeu JB (Julien Boucherit), 60 cas = 20 communs + 40 propres.
-# Tirage tirer_jeux_v1.0.0, graine 20261119, 19/11/2026 21:09. Ne pas modifier : refaire le tirage.
+# Étude des observateurs : jeu JB (Julien Boucherit), 50 cas = 20 communs + 30 propres.
+# Tirage tirer_jeux_v1.1.0, graine 20261119, 20/11/2026 15:38. Ne pas modifier : refaire le tirage.
 # L'application mélange l'ordre des cas pour chaque passation.
 images/RCAN_01_001_S_0.4__ICA_1.nii.gz ; images/RCAN_01_001_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_001_S_0.4__ICA_1.nii.gz ; images/RCAN_01_001_S_0.4__ICA_1_blebs.seg.nii.gz
-images/RCAN_01_006_S_0.4__ICA_1.nii.gz ; images/RCAN_01_006_S_0.4__ICA_1.seg.nii.gz
-images/RCAN_01_006_S_0.4__ICA_1.nii.gz ; images/RCAN_01_006_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_008_S_0.4__ICA_1.nii.gz ; images/RCAN_01_008_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_008_S_0.4__ICA_1.nii.gz ; images/RCAN_01_008_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_010_S_0.4__ICA_1.nii.gz ; images/RCAN_01_010_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_010_S_0.4__ICA_1.nii.gz ; images/RCAN_01_010_S_0.4__ICA_1_blebs.seg.nii.gz
-images/RCAN_01_015_S_0.4__ICA_1.nii.gz ; images/RCAN_01_015_S_0.4__ICA_1.seg.nii.gz
-images/RCAN_01_015_S_0.4__ICA_1.nii.gz ; images/RCAN_01_015_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_016_S_0.4__ICA_1.nii.gz ; images/RCAN_01_016_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_016_S_0.4__ICA_1.nii.gz ; images/RCAN_01_016_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_017_S_0.4__ICA_1.nii.gz ; images/RCAN_01_017_S_0.4__ICA_1.seg.nii.gz
@@ -21,8 +17,6 @@ images/RCAN_01_024_S_0.4__ICA_1.nii.gz ; images/RCAN_01_024_S_0.4__ICA_1.seg.nii
 images/RCAN_01_024_S_0.4__ICA_1.nii.gz ; images/RCAN_01_024_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_028_S_0.4__ICA_1.nii.gz ; images/RCAN_01_028_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_028_S_0.4__ICA_1.nii.gz ; images/RCAN_01_028_S_0.4__ICA_1_blebs.seg.nii.gz
-images/RCAN_01_031_S_0.4__ICA_1.nii.gz ; images/RCAN_01_031_S_0.4__ICA_1.seg.nii.gz
-images/RCAN_01_031_S_0.4__ICA_1.nii.gz ; images/RCAN_01_031_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_039_S_0.4__ICA_1.nii.gz ; images/RCAN_01_039_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_039_S_0.4__ICA_1.nii.gz ; images/RCAN_01_039_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_040_S_0.4__ICA_1.nii.gz ; images/RCAN_01_040_S_0.4__ICA_1.seg.nii.gz
@@ -37,22 +31,16 @@ images/RCAN_01_142d_S_0.4__ICA_1.nii.gz ; images/RCAN_01_142d_S_0.4__ICA_1.seg.n
 images/RCAN_01_142d_S_0.4__ICA_1.nii.gz ; images/RCAN_01_142d_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_159_S_0.4__ICA_1.nii.gz ; images/RCAN_01_159_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_159_S_0.4__ICA_1.nii.gz ; images/RCAN_01_159_S_0.4__ICA_1_blebs.seg.nii.gz
-images/RCAN_01_169_S_0.4__ICA_1.nii.gz ; images/RCAN_01_169_S_0.4__ICA_1.seg.nii.gz
-images/RCAN_01_169_S_0.4__ICA_1.nii.gz ; images/RCAN_01_169_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_170_S_0.4__ICA_1.nii.gz ; images/RCAN_01_170_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_170_S_0.4__ICA_1.nii.gz ; images/RCAN_01_170_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_174_S_0.4__ICA_1.nii.gz ; images/RCAN_01_174_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_174_S_0.4__ICA_1.nii.gz ; images/RCAN_01_174_S_0.4__ICA_1_blebs.seg.nii.gz
-images/RCAN_01_177_S_0.4__ICA_1.nii.gz ; images/RCAN_01_177_S_0.4__ICA_1.seg.nii.gz
-images/RCAN_01_177_S_0.4__ICA_1.nii.gz ; images/RCAN_01_177_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_180_S_0.4__ICA_1.nii.gz ; images/RCAN_01_180_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_180_S_0.4__ICA_1.nii.gz ; images/RCAN_01_180_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_181_S_0.4__ICA_1.nii.gz ; images/RCAN_01_181_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_181_S_0.4__ICA_1.nii.gz ; images/RCAN_01_181_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_182_S_0.4__ICA_1.nii.gz ; images/RCAN_01_182_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_182_S_0.4__ICA_1.nii.gz ; images/RCAN_01_182_S_0.4__ICA_1_blebs.seg.nii.gz
-images/RCAN_01_204_S_0.4__ICA_1.nii.gz ; images/RCAN_01_204_S_0.4__ICA_1.seg.nii.gz
-images/RCAN_01_204_S_0.4__ICA_1.nii.gz ; images/RCAN_01_204_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_206_S_0.4__ICA_1.nii.gz ; images/RCAN_01_206_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_206_S_0.4__ICA_1.nii.gz ; images/RCAN_01_206_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_210_S_0.4__ICA_1.nii.gz ; images/RCAN_01_210_S_0.4__ICA_1.seg.nii.gz
@@ -71,8 +59,6 @@ images/RCAN_01_259_S_0.4__ICA_1.nii.gz ; images/RCAN_01_259_S_0.4__ICA_1.seg.nii
 images/RCAN_01_259_S_0.4__ICA_1.nii.gz ; images/RCAN_01_259_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_269_S_0.4__ICA_1.nii.gz ; images/RCAN_01_269_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_269_S_0.4__ICA_1.nii.gz ; images/RCAN_01_269_S_0.4__ICA_1_blebs.seg.nii.gz
-images/RCAN_01_274_S_0.4__ICA_1.nii.gz ; images/RCAN_01_274_S_0.4__ICA_1.seg.nii.gz
-images/RCAN_01_274_S_0.4__ICA_1.nii.gz ; images/RCAN_01_274_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_283_S_0.4__ICA_1.nii.gz ; images/RCAN_01_283_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_283_S_0.4__ICA_1.nii.gz ; images/RCAN_01_283_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_290_S_0.4__ICA_1.nii.gz ; images/RCAN_01_290_S_0.4__ICA_1.seg.nii.gz
@@ -85,12 +71,8 @@ images/RCAN_01_320_S_0.4__ICA_1.nii.gz ; images/RCAN_01_320_S_0.4__ICA_1.seg.nii
 images/RCAN_01_320_S_0.4__ICA_1.nii.gz ; images/RCAN_01_320_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_321_S_0.4__ICA_1.nii.gz ; images/RCAN_01_321_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_321_S_0.4__ICA_1.nii.gz ; images/RCAN_01_321_S_0.4__ICA_1_blebs.seg.nii.gz
-images/RCAN_01_323_S_0.4__ICA_1.nii.gz ; images/RCAN_01_323_S_0.4__ICA_1.seg.nii.gz
-images/RCAN_01_323_S_0.4__ICA_1.nii.gz ; images/RCAN_01_323_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_338_S_0.4__ICA_1.nii.gz ; images/RCAN_01_338_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_338_S_0.4__ICA_1.nii.gz ; images/RCAN_01_338_S_0.4__ICA_1_blebs.seg.nii.gz
-images/RCAN_01_342_S_0.4__ICA_1.nii.gz ; images/RCAN_01_342_S_0.4__ICA_1.seg.nii.gz
-images/RCAN_01_342_S_0.4__ICA_1.nii.gz ; images/RCAN_01_342_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_346_S_0.4__ICA_1.nii.gz ; images/RCAN_01_346_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_346_S_0.4__ICA_1.nii.gz ; images/RCAN_01_346_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_348_S_0.4__ICA_1.nii.gz ; images/RCAN_01_348_S_0.4__ICA_1.seg.nii.gz
@@ -111,8 +93,6 @@ images/RCAN_01_380_S_0.4__ICA_1.nii.gz ; images/RCAN_01_380_S_0.4__ICA_1.seg.nii
 images/RCAN_01_380_S_0.4__ICA_1.nii.gz ; images/RCAN_01_380_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_399_S_0.4__ICA_1.nii.gz ; images/RCAN_01_399_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_399_S_0.4__ICA_1.nii.gz ; images/RCAN_01_399_S_0.4__ICA_1_blebs.seg.nii.gz
-images/RCAN_01_402_S_0.4__ICA_1.nii.gz ; images/RCAN_01_402_S_0.4__ICA_1.seg.nii.gz
-images/RCAN_01_402_S_0.4__ICA_1.nii.gz ; images/RCAN_01_402_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_405_S_0.4__ICA_1.nii.gz ; images/RCAN_01_405_S_0.4__ICA_1.seg.nii.gz
 images/RCAN_01_405_S_0.4__ICA_1.nii.gz ; images/RCAN_01_405_S_0.4__ICA_1_blebs.seg.nii.gz
 images/RCAN_01_412_S_0.4__ICA_1.nii.gz ; images/RCAN_01_412_S_0.4__ICA_1.seg.nii.gz
