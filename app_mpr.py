@@ -60,10 +60,15 @@ Historique :
     un second clic le rétablit.
     19/11/2026, Fakhrielddine Bader, version de l'étude des observateurs :
     - chaque identifiant ouvre sa propre playlist (OBSERVERS : JB, GG, VL ; jeux de 60 cas, dont 20 communs) ;
-      un identifiant inconnu est refusé. Avec une playlist en argument, mode libre (calibration, démonstration) ;
+      un identifiant inconnu est refusé (remplacé le 20/11/2026 par les identifiants libres). Avec une playlist en argument, mode libre (calibration, démonstration) ;
     - le nom du patient n'est plus affiché, dans aucune phase (option « Masquer le nom du patient » retirée) ;
     - phase 1 : la rangée d'outils (« Navigation », seul outil sans correction) n'est plus affichée ;
     - l'aperçu final (« phase 3 ») est retiré : après la phase 2, on passe directement au cas suivant.
+    20/11/2026, Fakhrielddine Bader, retours des tests (Louise, Laurence, Adrien, F. Autrusseau) :
+    - viewer : retouches d'un bleb conservées quand on y revient (bug) ; choix qui efface des retouches confirmé par
+      un second clic ; réticule blanc en tirets ; progression visible en plein écran ; Shift + souris synchronise les vues ;
+    - identifiant hors OBSERVERS (mode étude) : FREE_N_CASES cas tirés au hasard, résultats à part (resultats/libres/) ;
+    - jeux de l'étude : 50 cas (20 communs + 30 propres).
 
 Décision par bleb en phase 2 : sans choix, un bleb pré-segmenté est gardé tel quel (« garde »). L'observateur peut
 le retoucher (« Retoucher » : pinceau et gomme sur ce bleb seul) ou le supprimer (« Supprimer » : il est rendu à
@@ -114,6 +119,14 @@ OBSERVERS = {
     "VL": ("Vincent L'Allinec", "playlist_VL.txt"),
 }
 PLAYLIST_DIR = Path(os.path.abspath(os.path.expanduser(os.environ.get("BLEB_PLAYLIST_DIR", str(BASE_DIR)))))
+# Identifiant libre (mode étude, identifiant hors OBSERVERS ; demande de F. Autrusseau, 20/11/2026) : FREE_N_CASES cas
+# tirés au hasard parmi tous les cas des playlists de l'étude. Tirage fixé par l'identifiant (même identifiant = mêmes
+# cas, ce qui permet la reprise) ; l'ordre reste mélangé à chaque passation. Résultats à part, hors étude :
+# FREE_RESULTS_DIR et FREE_RATINGS_FILE.
+FREE_N_CASES = int(os.environ.get("BLEB_FREE_N_CASES", "50"))
+FREE_RESULTS_DIR = RESULTS_DIR / "libres"
+FREE_RATINGS_FILE = OUTPUT_DIR / "notes_libres.csv"
+STUDY_RESULTS_DIR, STUDY_RATINGS_FILE = RESULTS_DIR, RATINGS_FILE
 PLAYLIST_ARG = str(Path(sys.argv[1]).resolve()) if len(sys.argv) > 1 else None
 
 SHUFFLE_CASES = True  # ordre des cas aléatoire pour chaque passation (False : ordre de la playlist)
@@ -431,25 +444,53 @@ def observer_playlist(observer: str) -> str | None:
     return str(PLAYLIST_DIR / OBSERVERS[observer][1]) if observer in OBSERVERS else None
 
 
+def is_free_id(observer: str) -> bool:
+    """Identifiant hors étude (mode étude seulement) : il reçoit un tirage de FREE_N_CASES cas."""
+    return bool(observer) and not PLAYLIST_ARG and observer not in OBSERVERS
+
+
+def free_playlist(observer: str) -> list[str]:
+    """FREE_N_CASES cas (paires phase 1 / phase 2) tirés parmi tous les cas des playlists de l'étude.
+
+    Les cas sont triés par nom, puis tirés avec une graine dérivée de l'identifiant : le même identifiant retrouve
+    toujours les mêmes cas (reprise possible). Auteur : Fakhrielddine Bader (20/11/2026)."""
+    pairs = set()
+    for _, fname in OBSERVERS.values():
+        entries = read_playlist(str(PLAYLIST_DIR / fname))
+        pairs.update((entries[k], entries[k + 1]) for k in range(0, len(entries) - 1, 2))
+    seed = int(hashlib.sha256(f"identifiant libre|{observer}".encode("utf-8")).hexdigest()[:16], 16)
+    drawn = random.Random(seed).sample(sorted(pairs), min(FREE_N_CASES, len(pairs)))
+    return [e for pair in drawn for e in pair]
+
+
 with st.sidebar:
     st.header("Session")
     observer = st.text_input("Identifiant de l'observateur").strip()
     if observer and not PLAYLIST_ARG:
         observer = observer.upper()          # mode étude : « jb » et « JB » désignent le même observateur
-    unknown = bool(observer) and observer_playlist(observer) is None
-    if unknown:
-        st.error("Identifiant inconnu. Saisissez l'identifiant qui vous a été communiqué.")
+    free_id = is_free_id(observer)
+    if free_id:
+        # résultats à part : rien ne se mélange aux passations de l'étude (globales relues par les fonctions)
+        RESULTS_DIR, RATINGS_FILE = FREE_RESULTS_DIR, FREE_RATINGS_FILE
+        st.warning(f"Identifiant hors étude : {FREE_N_CASES} cas tirés au hasard ; résultats enregistrés à part. "
+                   f"Observateurs de l'étude : saisissez l'identifiant qui vous a été communiqué ({', '.join(OBSERVERS)}).")
     elif observer and not PLAYLIST_ARG:
         st.caption(f"Observateur : {OBSERVERS[observer][0]}")
-    playlist_path = observer_playlist(observer) if observer and not unknown else None
+    # identifiant libre : pas de fichier, la playlist est tirée en mémoire ; ce nom sert seulement de clé d'état
+    playlist_path = (f"tirage libre {observer}" if free_id else observer_playlist(observer)) if observer else None
     playlist, playlist_error = [], None
-    if playlist_path and Path(playlist_path).exists():
+    if free_id:
+        try:
+            playlist = free_playlist(observer)
+        except (OSError, ValueError) as e:
+            playlist_error = f"tirage impossible : {e}"
+    elif playlist_path and Path(playlist_path).exists():
         try:
             playlist = read_playlist(playlist_path)
         except ValueError as e:
             playlist_error = str(e)
     playlist_ok = bool(playlist) and len(playlist) % 2 == 0
-    started = bool(observer) and not unknown and st.session_state.get("started_by") == observer
+    started = bool(observer) and st.session_state.get("started_by") == observer
     if started:  # pas de bouton de démarrage pendant le test : un clic accidentel ferait repartir de zéro
         st.caption("Test en cours : vos réponses sont enregistrées à chaque « Enregistrer ».")
     else:
@@ -462,7 +503,7 @@ with st.sidebar:
             if st.button("Nouveau test (repartir de zéro)", use_container_width=True):
                 new_run(observer)
                 st.rerun()
-        elif st.button("▶ Démarrer le test", type="primary", disabled=not observer or unknown,
+        elif st.button("▶ Démarrer le test", type="primary", disabled=not observer,
                        use_container_width=True):
             new_run(observer)
             st.rerun()
@@ -482,15 +523,15 @@ with st.sidebar:
         import nibabel  # noqa: F401
     except ImportError:
         st.warning("nibabel n'est pas installé : lecture des NIfTI et export impossibles (`pip install nibabel`).")
-    rt.admin_panel(st, OUTPUT_DIR, RESULTS_DIR, RATINGS_FILE)  # téléchargement des résultats (si ADMIN_PASSWORD est défini)
+    rt.admin_panel(st, OUTPUT_DIR, STUDY_RESULTS_DIR, STUDY_RATINGS_FILE)  # téléchargement de tous les résultats, resultats/libres/ compris (si ADMIN_PASSWORD est défini)
 
-if not observer or unknown:
+if not observer:
     st.info("Saisissez votre identifiant dans la barre latérale pour commencer.")
     st.stop()
 if not started:
     st.info("Cliquez sur « Démarrer le test » (ou « Reprendre le test ») dans la barre latérale.")
     st.stop()
-if not Path(playlist_path).exists():
+if not free_id and not Path(playlist_path).exists():
     st.error(f"Playlist introuvable : {playlist_path}")
     st.stop()
 if playlist_error:
