@@ -599,6 +599,11 @@ if case is not None:
     viewer_value = viewer_component(
         scene_id=f"{current}|{int(editable)}",
         case_label=None,                    # nom du patient jamais affiché (étude en aveugle)
+        # progression affichée dans le panneau du viewer : visible aussi en plein écran (remarque de Louise, 20/11/2026)
+        progress_text=(
+            f"Cas {idx // 2 + 1} / {len(playlist) // 2} — phase {1 if phase == PHASE_COUNT else 2}/2\n"
+            f"Reste : {len(playlist) // 2 - idx // 2} cas, celui-ci compris"
+        ),
         eval_title=COUNT_QUESTION if phase == PHASE_COUNT else VERDICT_QUESTION,
         count_options=[{"value": k, "label": v} for k, v in BLEB_OPTIONS.items()] if phase == PHASE_COUNT else None,
         zero_hint=ZERO_HINT if SKIP_PHASE2_IF_ZERO_BLEBS else "",
