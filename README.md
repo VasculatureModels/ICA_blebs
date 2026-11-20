@@ -30,14 +30,24 @@ Les découpes (images et segmentations) sont dans `images/`, à côté de `app_m
 L'observateur lance l'application **sans argument**, saisit son identifiant (majuscules ou minuscules) et clique
 « Démarrer le test » : sa playlist s'ouvre.
 
-**Identifiant libre** (tout autre identifiant, par exemple `TEST` ou `LOUISE`) : 50 cas tirés au hasard dans la
-playlist globale du dataset, `playlist_globale.txt` (tous les cas, deux lignes par cas, comme les autres playlists ;
-autre fichier : variable `BLEB_FREE_PLAYLIST`). Tant que ce fichier n'existe pas, le tirage se fait parmi les cas des
-trois playlists de l'étude ; le bandeau indique la source. Le tirage dépend de l'identifiant : le même identifiant retrouve toujours les mêmes cas
-(la reprise fonctionne), et l'ordre est mélangé à chaque passation. Un bandeau « Identifiant hors étude » le
-signale. Les réponses sont enregistrées **à part** : `notes_libres.csv` et `resultats/libres/` (aussi dans la
-sauvegarde distante, sous `libres/`). Elles ne se mélangent jamais aux passations de l'étude. Nombre de cas :
-variable `BLEB_FREE_N_CASES` (50 par défaut).
+Identifiants hors étude (même lancement, sans argument) : 50 cas tirés au hasard, réponses enregistrées **à part**
+(`notes_libres.csv` et `resultats/libres/`, aussi dans la sauvegarde distante sous `libres/`), jamais mélangées aux
+passations de l'étude. Un bandeau « Identifiant hors étude » indique d'où viennent les cas.
+
+| Identifiant | Cas tirés parmi | Playlist source |
+|---|---|---|
+| `JB`, `GG`, `VL` (étude) | les éligibles : 50 cas = 20 communs + 30 propres (tirage fixe) | `playlist_JB/GG/VL.txt` |
+| `GLOB`, `glob`, `GLOB-…` | toute la cohorte, éligibles et non éligibles | `playlist_globale.txt` |
+| tout autre identifiant (`TEST`, `LOUISE`…) | les cas éligibles | `playlist_eligibles.txt` |
+
+Le tirage dépend de l'identifiant : le même identifiant retrouve toujours les mêmes cas (la reprise fonctionne), un
+autre identifiant (`GLOB-2`, `TEST-2`…) donne un autre tirage ; l'ordre est mélangé à chaque passation. Sans
+`playlist_eligibles.txt`, un identifiant libre tire parmi les cas des trois playlists de l'étude ; sans
+`playlist_globale.txt`, `GLOB` est refusé. Variables : `BLEB_FREE_N_CASES` (50), `BLEB_FREE_PLAYLIST`,
+`BLEB_GLOBAL_PLAYLIST`.
+
+Cas exclus de l'étude : `cas_exclus.txt` (cas, motif, date). Ils ne sont pas dans `playlist_eligibles.txt`, donc
+ni dans le tirage des jeux ni dans celui des identifiants libres ; ils restent dans `playlist_globale.txt`.
 
 ```bash
 uv run streamlit run app_mpr.py

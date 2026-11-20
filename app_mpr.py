@@ -67,7 +67,8 @@ Historique :
     20/11/2026, Fakhrielddine Bader, retours des tests (Louise, Laurence, Adrien, F. Autrusseau) :
     - viewer : retouches d'un bleb conservées quand on y revient (bug) ; choix qui efface des retouches confirmé par
       un second clic ; réticule blanc en tirets ; progression visible en plein écran ; Shift + souris synchronise les vues ;
-    - identifiant hors OBSERVERS (mode étude) : FREE_N_CASES cas tirés au hasard, résultats à part (resultats/libres/) ;
+    - identifiant hors OBSERVERS (mode étude) : FREE_N_CASES cas tirés au hasard parmi les éligibles ; GLOB… : parmi
+      toute la cohorte ; résultats à part (resultats/libres/) ;
     - jeux de l'étude : 50 cas (20 communs + 30 propres).
 
 Décision par bleb en phase 2 : sans choix, un bleb pré-segmenté est gardé tel quel (« garde »). L'observateur peut
@@ -119,14 +120,19 @@ OBSERVERS = {
     "VL": ("Vincent L'Allinec", "playlist_VL.txt"),
 }
 PLAYLIST_DIR = Path(os.path.abspath(os.path.expanduser(os.environ.get("BLEB_PLAYLIST_DIR", str(BASE_DIR)))))
-# Identifiant libre (mode étude, identifiant hors OBSERVERS ; demande de F. Autrusseau, 20/11/2026) : FREE_N_CASES cas
-# tirés au hasard dans la playlist globale du dataset (FREE_PLAYLIST : tous les cas, deux lignes par cas comme les
-# autres playlists). Tant qu'elle n'existe pas, le tirage se fait parmi les cas des trois playlists de l'étude.
-# Tirage fixé par l'identifiant (même identifiant = mêmes cas, ce qui permet la reprise) ; l'ordre reste mélangé à
-# chaque passation. Résultats à part, hors étude : FREE_RESULTS_DIR et FREE_RATINGS_FILE.
+# Identifiants hors étude, en mode étude (décision du 20/11/2026), FREE_N_CASES cas tirés au hasard :
+#  - identifiant commençant par GLOBAL_PREFIX (« GLOB », « glob », « GLOB-LOUISE »…) : dans la playlist globale de toute
+#    la cohorte, éligibles et non éligibles (GLOBAL_PLAYLIST) ;
+#  - tout autre identifiant (identifiant libre) : parmi les cas éligibles (FREE_PLAYLIST, entrée du tirage de l'étude) ;
+#    tant qu'elle n'existe pas, parmi les cas des trois playlists de l'étude.
+# Tirage fixé par l'identifiant (même identifiant = mêmes cas, ce qui permet la reprise ; un autre identifiant donne un
+# autre tirage) ; l'ordre reste mélangé à chaque passation. Résultats à part : FREE_RESULTS_DIR et FREE_RATINGS_FILE.
 FREE_N_CASES = int(os.environ.get("BLEB_FREE_N_CASES", "50"))
 FREE_PLAYLIST = Path(os.path.abspath(os.path.expanduser(
-    os.environ.get("BLEB_FREE_PLAYLIST", str(PLAYLIST_DIR / "playlist_globale.txt")))))
+    os.environ.get("BLEB_FREE_PLAYLIST", str(PLAYLIST_DIR / "playlist_eligibles.txt")))))
+GLOBAL_PREFIX = "GLOB"
+GLOBAL_PLAYLIST = Path(os.path.abspath(os.path.expanduser(
+    os.environ.get("BLEB_GLOBAL_PLAYLIST", str(PLAYLIST_DIR / "playlist_globale.txt")))))
 FREE_RESULTS_DIR = RESULTS_DIR / "libres"
 FREE_RATINGS_FILE = OUTPUT_DIR / "notes_libres.csv"
 STUDY_RESULTS_DIR, STUDY_RATINGS_FILE = RESULTS_DIR, RATINGS_FILE
@@ -452,20 +458,39 @@ def is_free_id(observer: str) -> bool:
     return bool(observer) and not PLAYLIST_ARG and observer not in OBSERVERS
 
 
-def free_source() -> list[Path]:
-    """Playlist(s) où tirer les cas d'un identifiant libre : la playlist globale si elle existe, sinon celles de l'étude."""
+def is_global_id(observer: str) -> bool:
+    """Identifiant hors étude qui tire ses cas dans toute la cohorte (« GLOB », « GLOB-LOUISE »…)."""
+    return is_free_id(observer) and observer.upper().startswith(GLOBAL_PREFIX)
+
+
+def free_source(observer: str) -> list[Path]:
+    """Playlist(s) où tirer les cas d'un identifiant hors étude.
+
+    GLOB… : la playlist globale (erreur si elle n'existe pas encore) ; autre identifiant : la playlist des cas
+    éligibles si elle existe, sinon les trois playlists de l'étude."""
+    if is_global_id(observer):
+        if not GLOBAL_PLAYLIST.is_file():
+            raise ValueError(f"la playlist de toute la cohorte ({GLOBAL_PLAYLIST.name}) n'est pas encore disponible")
+        return [GLOBAL_PLAYLIST]
     if FREE_PLAYLIST.is_file():
         return [FREE_PLAYLIST]
     return [PLAYLIST_DIR / fname for _, fname in OBSERVERS.values()]
 
 
+def free_source_label(observer: str) -> str:
+    """Source du tirage, telle qu'affichée dans le bandeau de la barre latérale."""
+    if is_global_id(observer):
+        return f"toute la cohorte ({GLOBAL_PLAYLIST.name})"
+    return f"les cas éligibles ({FREE_PLAYLIST.name})" if FREE_PLAYLIST.is_file() else "les cas des playlists de l'étude"
+
+
 def free_playlist(observer: str) -> list[str]:
-    """FREE_N_CASES cas (paires phase 1 / phase 2) tirés dans free_source().
+    """FREE_N_CASES cas (paires phase 1 / phase 2) tirés dans free_source(observer).
 
     Les cas sont triés par nom, puis tirés avec une graine dérivée de l'identifiant : le même identifiant retrouve
     toujours les mêmes cas (reprise possible). Auteur : Fakhrielddine Bader (20/11/2026)."""
     pairs = set()
-    for path in free_source():
+    for path in free_source(observer):
         entries = read_playlist(str(path))
         if len(entries) % 2:
             raise ValueError(f"{path.name} : nombre impair d'entrées (deux lignes par cas attendues)")
@@ -484,8 +509,8 @@ with st.sidebar:
     if free_id:
         # résultats à part : rien ne se mélange aux passations de l'étude (globales relues par les fonctions)
         RESULTS_DIR, RATINGS_FILE = FREE_RESULTS_DIR, FREE_RATINGS_FILE
-        _src = FREE_PLAYLIST.name if FREE_PLAYLIST.is_file() else "les playlists de l'étude"
-        st.warning(f"Identifiant hors étude : {FREE_N_CASES} cas tirés au hasard dans {_src} ; résultats enregistrés à part. "
+        st.warning(f"Identifiant hors étude : {FREE_N_CASES} cas tirés au hasard parmi {free_source_label(observer)} ; "
+                   f"résultats enregistrés à part. "
                    f"Observateurs de l'étude : saisissez l'identifiant qui vous a été communiqué ({', '.join(OBSERVERS)}).")
     elif observer and not PLAYLIST_ARG:
         st.caption(f"Observateur : {OBSERVERS[observer][0]}")
@@ -497,6 +522,7 @@ with st.sidebar:
             playlist = free_playlist(observer)
         except (OSError, ValueError) as e:
             playlist_error = f"tirage impossible : {e}"
+            st.error(playlist_error)
     elif playlist_path and Path(playlist_path).exists():
         try:
             playlist = read_playlist(playlist_path)

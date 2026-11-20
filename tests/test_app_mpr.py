@@ -440,7 +440,7 @@ def test_study_mode_each_identifier_opens_its_own_playlist():
 
 
 def test_free_identifier_gets_random_cases_stored_apart():
-    """Identifiant hors étude (20/11/2026), sans playlist globale : tirage parmi les cas de l'étude, résultats à part."""
+    """Identifiant libre (20/11/2026), sans playlist des éligibles : tirage parmi les cas de l'étude, résultats à part."""
     sets = {"JB": ["C1__ICA_1", "J1__ICA_1"], "GG": ["C1__ICA_1", "G1__ICA_1"], "VL": ["C1__ICA_1", "V1__ICA_1"]}
     all_cases = {"C1__ICA_1", "J1__ICA_1", "G1__ICA_1", "V1__ICA_1"}
     os.environ["BLEB_FREE_N_CASES"] = "2"
@@ -469,27 +469,56 @@ def test_free_identifier_gets_random_cases_stored_apart():
         del os.environ["BLEB_FREE_N_CASES"]
 
 
-def test_free_identifier_draws_from_global_playlist():
-    """Avec playlist_globale.txt (tout le dataset), le tirage se fait dedans, et non dans les playlists de l'étude."""
-    sets = {"JB": ["C1__ICA_1"], "GG": ["G1__ICA_1"], "VL": ["V1__ICA_1"]}
-    globale = ["X1__ICA_1", "X2__ICA_1", "X3__ICA_1", "X4__ICA_1", "X5__ICA_1"]
+def _free_session(w, typed, n):
+    """Passation complète d'un identifiant hors étude (« 0 bleb » partout) ; renvoie les cas vus et le bandeau."""
+    at = started_app(typed)
+    banner = " ".join(x.value for x in at.sidebar.warning)
+    assert f"Cas 1 / {n}" in phase(at), phase(at)
+    for _ in range(n):
+        answer(at, 0)
+    with open(w.root / "sorties" / "notes_libres.csv", newline="", encoding="utf-8") as f:
+        rows = [r for r in csv.DictReader(f) if r["observateur"] == typed.strip().upper()]
+    last = rows[-1]["session"]
+    return {Path(r["segmentation"]).name.split(".")[0].replace("_blebs", "") for r in rows if r["session"] == last}, banner
+
+
+def _write_playlist(w, name, cases):
+    lines = []
+    for c in cases:
+        lines += write_case(w.root / "images", c)
+    (w.root / name).write_text("# " + name + "\n" + "\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_free_and_glob_identifiers_draw_from_eligibles_and_whole_cohort():
+    """Identifiant libre : cas éligibles (playlist_eligibles.txt). GLOB… : toute la cohorte (playlist_globale.txt)."""
+    sets = {"JB": ["E1__ICA_1"], "GG": ["E2__ICA_1"], "VL": ["E3__ICA_1"]}
+    eligibles = ["E1__ICA_1", "E2__ICA_1", "E3__ICA_1", "E4__ICA_1"]
+    cohorte = eligibles + ["N1__ICA_1", "N2__ICA_1", "N3__ICA_1", "N4__ICA_1", "N5__ICA_1", "N6__ICA_1"]
     os.environ["BLEB_FREE_N_CASES"] = "3"
     try:
         with StudyWorkdir(sets) as w:
-            lines = []
-            for c in globale:
-                lines += write_case(w.root / "images", c)
-            (w.root / "playlist_globale.txt").write_text("# dataset\n" + "\n".join(lines) + "\n", encoding="utf-8")
-            at = started_app("autre")
-            assert any("playlist_globale.txt" in x.value for x in at.sidebar.warning), [x.value for x in at.sidebar.warning]
-            assert "Cas 1 / 3" in phase(at)
-            for _ in range(3):
-                answer(at, 0)
-            with open(w.root / "sorties" / "notes_libres.csv", newline="", encoding="utf-8") as f:
-                seen = {Path(r["segmentation"]).name.split(".")[0].replace("_blebs", "") for r in csv.DictReader(f)}
-            assert len(seen) == 3 and seen <= set(globale), seen
+            _write_playlist(w, "playlist_eligibles.txt", eligibles)
+            _write_playlist(w, "playlist_globale.txt", cohorte)
+            os.environ["BLEB_FREE_N_CASES"] = "4"                     # les 4 éligibles, dont E4 (dans aucun jeu de l'étude)
+            seen, banner = _free_session(w, "autre", 4)
+            assert "cas éligibles" in banner and seen == set(eligibles), (seen, banner)
+            os.environ["BLEB_FREE_N_CASES"] = "3"
+            glob_seen = set()
+            for typed in ("glob", "GLOB-2", "GLOB-3", "GLOB-4"):       # « glob » = « GLOB » ; chaque identifiant : son tirage
+                seen, banner = _free_session(w, typed, 3)
+                assert "toute la cohorte" in banner and len(seen) == 3 and seen <= set(cohorte), (typed, seen, banner)
+                glob_seen |= seen
+            assert glob_seen - set(eligibles), glob_seen               # des cas non éligibles sont bien tirés
+            assert not (w.root / "sorties" / "notes_observateurs.csv").exists()
     finally:
         del os.environ["BLEB_FREE_N_CASES"]
+
+
+def test_glob_identifier_without_global_playlist_is_blocked():
+    with StudyWorkdir({"JB": ["C1__ICA_1"], "GG": ["G1__ICA_1"], "VL": ["V1__ICA_1"]}) as w:
+        at = new_app("GLOB")
+        assert any("pas encore disponible" in e.value for e in at.sidebar.error), [e.value for e in at.sidebar.error]
+        assert not (w.root / "sorties" / "notes_libres.csv").exists()
 
 
 def test_study_identifier_is_not_a_free_identifier():
