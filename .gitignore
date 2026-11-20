@@ -1,0 +1,15 @@
+# Environnement
+.venv/
+__pycache__/
+*.pyc
+
+# Fichiers de verrouillage de LibreOffice
+.~lock.*#
+
+# Secrets de l'application (mots de passe UNCloud, jetons) : jamais dans le dépôt, qui est public
+.streamlit/secrets.toml
+
+# Réponses et résultats des passations (sauvegardés sur UNCloud) : jamais dans le dépôt public
+notes_observateurs*.csv
+notes_libres*.csv
+resultats/

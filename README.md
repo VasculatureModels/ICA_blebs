@@ -17,8 +17,8 @@ Après la phase 2, on passe directement au cas suivant (l'aperçu final, « phas
 
 ## Étude des observateurs : un jeu par identifiant
 
-Chaque observateur a son identifiant et sa playlist (jeu de 60 cas : 20 cas communs aux trois observateurs, pour
-mesurer leur accord, et 40 cas propres) :
+Chaque observateur a son identifiant et sa playlist (jeu de 50 cas : 20 cas communs aux trois observateurs, pour
+mesurer leur accord, et 30 cas propres ; décision du 20/11/2026, tirage `tirer_jeux` v1.1.0) :
 
 | Identifiant | Observateur | Playlist |
 |---|---|---|
@@ -26,9 +26,16 @@ mesurer leur accord, et 40 cas propres) :
 | `GG` | Guillaume Geffroy | `playlist_GG.txt` |
 | `VL` | Vincent L'Allinec | `playlist_VL.txt` |
 
-Les découpes (images et segmentations) vont dans `images/`, à côté de `app_mpr.py` ; elles ne sont pas dans le dépôt.
+Les découpes (images et segmentations) sont dans `images/`, à côté de `app_mpr.py`.
 L'observateur lance l'application **sans argument**, saisit son identifiant (majuscules ou minuscules) et clique
-« Démarrer le test » : sa playlist s'ouvre. Un identifiant inconnu est refusé.
+« Démarrer le test » : sa playlist s'ouvre.
+
+**Identifiant libre** (tout autre identifiant, par exemple `TEST` ou `LOUISE`) : 50 cas tirés au hasard parmi ceux des
+trois playlists de l'étude. Le tirage dépend de l'identifiant : le même identifiant retrouve toujours les mêmes cas
+(la reprise fonctionne), et l'ordre est mélangé à chaque passation. Un bandeau « Identifiant hors étude » le
+signale. Les réponses sont enregistrées **à part** : `notes_libres.csv` et `resultats/libres/` (aussi dans la
+sauvegarde distante, sous `libres/`). Elles ne se mélangent jamais aux passations de l'étude. Nombre de cas :
+variable `BLEB_FREE_N_CASES` (50 par défaut).
 
 ```bash
 uv run streamlit run app_mpr.py
@@ -120,6 +127,7 @@ Les fichiers peuvent être en NRRD ou en NIfTI. L'image et la segmentation doive
   `nb_blebs_final` donne le nombre de blebs de la segmentation enregistrée en phase 2 ; elle se compare au
   `nb_blebs` de la phase 1 du même cas.
 - `resultats/resultats_<observateur>_<session>.csv` : récapitulatif écrit à la fin du test.
+- Identifiants libres : mêmes fichiers, dans `notes_libres.csv` et `resultats/libres/`.
 - `resultats/corrections_<observateur>_<session>/*_corrige.nii.gz` : segmentation corrigée, dans l'orientation et
   l'espace du fichier d'origine. Écrite pour chaque cas : après la phase 2 (la pré-segmentation elle-même si
   rien n'a été modifié), ou après « 0 bleb » (segmentation sans bleb).
@@ -131,11 +139,12 @@ Les fichiers peuvent être en NRRD ou en NIfTI. L'image et la segmentation doive
 | `app_mpr.py` | application Streamlit (protocole, enregistrement des réponses) |
 | `mpr_utils.py` | lecture des volumes, réorientation, export NIfTI |
 | `mpr_viewer/` | viewer MPR et 3D (composant Streamlit) |
-| `tests/test_app_mpr.py` | tests sur volumes synthétiques : `uv run python tests/test_app_mpr.py` |
+| `tests/test_app_mpr.py` | tests sur volumes synthétiques : `python tests/test_app_mpr.py` |
+| `tests/viewer/` | tests du viewer dans un vrai navigateur (Playwright) : `python tests/viewer/test_viewer_retouche.py`, `python tests/viewer/test_viewer_affichage.py` ; prérequis dans `tests/viewer/banc.py` |
 | `playlist_JB.txt`, `playlist_GG.txt`, `playlist_VL.txt` | jeux de l'étude (un par observateur) |
-| `outils/tirer_jeux.py` | tirage des jeux ; tests : `uv run python tests/test_tirer_jeux.py` |
+| `outils/tirer_jeux.py` | tirage des jeux ; tests : `python tests/test_tirer_jeux.py` |
 | `outils/verifier_sorties.py` | vérification des sorties d'une passation |
-| `pyproject.toml`, `uv.lock` | environnement uv ; `requirements.txt` reste disponible pour pip |
+| `pyproject.toml`, `requirements.txt` | environnement (uv ou pip) ; Streamlit Cloud utilise `requirements.txt` |
 
 ## Vérifier ce qu'une passation a enregistré
 
@@ -153,8 +162,10 @@ Test de bout en bout (passation complète simulée, puis fichiers altérés expr
 
 ## Déploiement sur Streamlit Community Cloud
 
-Community Cloud n'utilise qu'un seul fichier de dépendances, et `uv.lock` passe avant `requirements.txt`. Depuis
-l'ajout de `uv.lock`, c'est donc lui qui définit l'environnement de l'application déployée.
+Community Cloud n'utilise qu'un seul fichier de dépendances. Le dépôt n'a pas de `uv.lock` : c'est donc
+`requirements.txt` qui définit l'environnement de l'application déployée. Le disque de Community Cloud est
+éphémère : les résultats sont envoyés à chaque « Enregistrer » vers la sauvegarde distante (UNCloud), configurée dans
+les secrets de l'application (`.streamlit/secrets.toml` en local, jamais dans le dépôt).
 
 ## Historique
 
@@ -168,3 +179,12 @@ l'ajout de `uv.lock`, c'est donc lui qui définit l'environnement de l'applicati
 - 19/11/2026, Fakhrielddine Bader : étude des observateurs — un jeu par identifiant (`JB`, `GG`, `VL` ; 60 cas dont
   20 communs), outil de tirage `outils/tirer_jeux.py` ; nom du patient jamais affiché ; plus de rangée d'outils en
   phase 1 ; aperçu final (phase 3) retiré ; données, réponses de test et scripts annexes retirés du dépôt.
+- 20/11/2026, Fakhrielddine Bader, retours des tests (Louise, Laurence, Adrien, Florent Autrusseau) :
+  - bug corrigé : revenir sur un bleb déjà retouché (« Retoucher » après être passé à un autre bleb) effaçait ses
+    retouches ; elles sont maintenant conservées, et un choix qui efface des retouches (annuler « Retoucher »,
+    « Supprimer ») demande un second clic ;
+  - réticule de navigation blanc en tirets (il se confondait avec un bleb jaune) ;
+  - progression (cas courant, cas restants) dans le panneau du viewer : visible aussi en plein écran ;
+  - Shift + déplacement de la souris : le réticule suit la souris et les trois vues se synchronisent (comme dans Slicer) ;
+  - identifiants libres : 50 cas tirés au hasard, résultats à part ;
+  - jeux de 50 cas (20 communs + 30 propres), `tirer_jeux` v1.1.0 ; tests du viewer dans un navigateur.
