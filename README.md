@@ -26,6 +26,10 @@ mesurer leur accord, et 30 cas propres ; décision du 20/11/2026, tirage `tirer_
 | `GG` | Guillaume Geffroy | `playlist_GG.txt` |
 | `VL` | Vincent L'Allinec | `playlist_VL.txt` |
 
+Les trois jeux sont tirés parmi les **144 cas éligibles** de `playlist_eligibles.txt` : les 146 cas de la playlist
+de l'étude du 17/11/2026, moins les 2 cas exclus de `cas_exclus.txt`. 110 cas sont tirés (20 communs + 3 × 30 propres),
+34 ne le sont pas.
+
 Les découpes (images et segmentations) sont dans `images/`, à côté de `app_mpr.py`.
 L'observateur lance l'application **sans argument**, saisit son identifiant (majuscules ou minuscules) et clique
 « Démarrer le test » : sa playlist s'ouvre.
@@ -53,10 +57,23 @@ ni dans le tirage des jeux ni dans celui des identifiants libres ; ils restent d
 uv run streamlit run app_mpr.py
 ```
 
-Les playlists sont lues dans le dossier de `app_mpr.py`, ou dans `BLEB_PLAYLIST_DIR`. Elles sont produites par
-`outils/tirer_jeux.py` (tirage au hasard, graine fixe ; voir l'en-tête du script), qui écrit aussi le groupe de
-chaque cas (`tirage_jeux.csv`). Le manifeste des découpes (`crops_manifest.csv`) ne doit jamais être donné aux
-observateurs.
+Les playlists sont lues dans le dossier de `app_mpr.py`, ou dans `BLEB_PLAYLIST_DIR`. Les trois jeux sont produits
+par `outils/tirer_jeux.py` (v1.1.0, graine 20261119 ; voir l'en-tête du script). Pour refaire le tirage à
+l'identique, dans un dossier de sortie neuf :
+
+```bash
+uv run python outils/tirer_jeux.py --playlist-etude playlist_eligibles.txt \
+    --manifeste <crops_manifest.csv des découpes> --calibration <analyses_calibration.txt> --sortie <dossier_neuf>
+```
+
+L'outil écrit aussi `tirage_jeux.csv` (groupe de chaque cas) et `tirage_jeux.json` (graine, effectifs, empreintes des
+entrées). Ces deux fichiers et le manifeste des découpes (`crops_manifest.csv`, qui contient le nombre de blebs
+pré-segmentés) ne vont **ni dans le dépôt, qui est public, ni chez les observateurs**.
+
+Exclure un cas : l'ajouter à `cas_exclus.txt` (cas ; motif ; décision), le retirer de `playlist_eligibles.txt`,
+puis refaire le tirage et remplacer les trois jeux, **avant la première passation de l'étude** (jamais pendant).
+Seul motif retenu à ce jour : segmentation de l'anévrisme médiocre. Une pré-segmentation des blebs défaillante
+n'est pas un motif d'exclusion : c'est ce que l'étude évalue.
 
 ## Installation et lancement
 
@@ -153,7 +170,11 @@ Les fichiers peuvent être en NRRD ou en NIfTI. L'image et la segmentation doive
 | `mpr_viewer/` | viewer MPR et 3D (composant Streamlit) |
 | `tests/test_app_mpr.py` | tests sur volumes synthétiques : `python tests/test_app_mpr.py` |
 | `tests/viewer/` | tests du viewer dans un vrai navigateur (Playwright) : `python tests/viewer/test_viewer_retouche.py`, `python tests/viewer/test_viewer_affichage.py` ; prérequis dans `tests/viewer/banc.py` |
-| `playlist_JB.txt`, `playlist_GG.txt`, `playlist_VL.txt` | jeux de l'étude (un par observateur) |
+| `playlist_JB.txt`, `playlist_GG.txt`, `playlist_VL.txt` | jeux de l'étude (un par observateur, 50 cas) |
+| `playlist_eligibles.txt` | les 144 cas éligibles : entrée du tirage des jeux, et source des identifiants libres |
+| `playlist_globale.txt` | toute la cohorte (identifiants `GLOB…`) ; ajoutée avec l'export de toute la cohorte |
+| `cas_exclus.txt` | cas exclus de l'étude, avec motif et décision |
+| `images/` | découpes : image, segmentation (artères, anévrisme) et pré-segmentation des blebs de chaque cas |
 | `outils/tirer_jeux.py` | tirage des jeux ; tests : `python tests/test_tirer_jeux.py` |
 | `outils/verifier_sorties.py` | vérification des sorties d'une passation |
 | `pyproject.toml`, `requirements.txt` | environnement (uv ou pip) ; Streamlit Cloud utilise `requirements.txt` |
@@ -198,5 +219,8 @@ les secrets de l'application (`.streamlit/secrets.toml` en local, jamais dans le
   - réticule de navigation blanc en tirets (il se confondait avec un bleb jaune) ;
   - progression (« Cas 12 / 50 — phase 2/2 ») dans le panneau du viewer : visible aussi en plein écran ;
   - Shift + déplacement de la souris : le réticule suit la souris et les trois vues se synchronisent (comme dans Slicer) ;
-  - identifiants libres : 50 cas tirés au hasard, résultats à part ;
-  - jeux de 50 cas (20 communs + 30 propres), `tirer_jeux` v1.1.0 ; tests du viewer dans un navigateur.
+  - identifiants hors étude : 50 cas tirés au hasard parmi les éligibles (identifiant libre) ou parmi toute la
+    cohorte (`GLOB…`), résultats à part ;
+  - 2 cas exclus (segmentation de l'anévrisme médiocre, `cas_exclus.txt`) ; `playlist_eligibles.txt` (144 cas) ;
+  - jeux de 50 cas (20 communs + 30 propres), `tirer_jeux` v1.1.0, tirés sur les 144 éligibles ; 5 cas tirés
+    ajoutés dans `images/` ; tests du viewer dans un navigateur.
