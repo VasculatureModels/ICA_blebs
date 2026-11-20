@@ -776,6 +776,7 @@ async function build(args) {
     }
   } else if (verdictBlebs) {                                  // phase 2 : un avis par bleb pré-segmenté
     const origHex = {}, rowsOf = {}, added = addedBlebs;
+    let pendingDrop = null;                                   // « bleb|choix » en attente du clic de confirmation
     // Outils de correction : visibles seulement pour le bleb « activeBleb » (pinceau = ce bleb, gomme = ce bleb seul).
     const showTools = (id) => {
       activeBleb = id;
@@ -827,6 +828,23 @@ async function build(args) {
           const btn = document.createElement("button");
           btn.textContent = o.label; btn.dataset.verdict = o.value;
           on(btn, "click", () => {
+            // Retouches de ce bleb conservées (bug du 20/11/2026, signalé par L. et L.) :
+            //  - revenir sur un bleb déjà retouché (« Retoucher » alors qu'un autre bleb est en cours de correction)
+            //    réaffiche ses outils et garde ses retouches ;
+            //  - un choix qui efface des retouches (annuler « Retoucher », ou « Supprimer ») demande un second clic.
+            // Auteur de ce bloc : Fakhrielddine Bader (20/11/2026).
+            const retouched = chosenVerdicts[b.id] === "retouche", nChanged = retouched ? (MPR.changedByLabel(v)[b.id] || 0) : 0;
+            if (retouched && o.value === "retouche" && nChanged > 0 && activeBleb !== b.id) {
+              pendingDrop = null; showMsg(""); showTools(b.id); return;
+            }
+            const dropKey = b.id + "|" + o.value;
+            if (retouched && nChanged > 0 && pendingDrop !== dropKey) {
+              pendingDrop = dropKey;
+              showMsg("⚠ " + b.name + " : ce choix efface les retouches faites sur ce bleb (" + nChanged + " voxels).\n" +
+                "Cliquez de nouveau sur « " + o.label + " » pour confirmer.");
+              return;
+            }
+            pendingDrop = null;
             showMsg("");
             const undo = chosenVerdicts[b.id] === o.value;      // second clic sur le même choix : on l'annule
             if (chosenVerdicts[b.id] === "retouche" && !(o.value === "retouche" && !undo)) {
