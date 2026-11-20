@@ -1,0 +1,16 @@
+# Environnement
+.venv/
+__pycache__/
+*.pyc
+
+# Fichiers de verrouillage de LibreOffice
+.~lock.*#
+
+# Donnees et sorties locales : jamais dans le depot
+images/
+resultats/
+notes_observateurs*.csv
+Misc/
+.agents/
+playlist.txt
+.streamlit/secrets.toml

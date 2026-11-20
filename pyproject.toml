@@ -1,0 +1,19 @@
+[project]
+name = "ica-blebs"
+version = "0.2.0"
+description = "Protocole de validation de la segmentation des blebs d'anévrismes intracrâniens (viewer MPR Streamlit)"
+readme = "README.md"
+authors = [
+    { name = "Fakhrielddine Bader" },
+    { name = "Florent Autrusseau" },
+]
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "streamlit>=1.40",
+    "nibabel>=5.0",
+    "pynrrd>=1.0",
+    "numpy>=1.26",
+]
+
+[tool.uv]
+package = false
