@@ -440,7 +440,7 @@ def test_study_mode_each_identifier_opens_its_own_playlist():
 
 
 def test_free_identifier_gets_random_cases_stored_apart():
-    """Identifiant hors étude (20/11/2026) : tirage de BLEB_FREE_N_CASES cas parmi ceux de l'étude, résultats à part."""
+    """Identifiant hors étude (20/11/2026), sans playlist globale : tirage parmi les cas de l'étude, résultats à part."""
     sets = {"JB": ["C1__ICA_1", "J1__ICA_1"], "GG": ["C1__ICA_1", "G1__ICA_1"], "VL": ["C1__ICA_1", "V1__ICA_1"]}
     all_cases = {"C1__ICA_1", "J1__ICA_1", "G1__ICA_1", "V1__ICA_1"}
     os.environ["BLEB_FREE_N_CASES"] = "2"
@@ -465,6 +465,29 @@ def test_free_identifier_gets_random_cases_stored_apart():
             assert not (out / "notes_observateurs.csv").exists()          # rien dans le journal de l'étude
             assert len(list((out / "resultats" / "libres").glob("resultats_TEST_*.csv"))) == 2
             assert not list((out / "resultats").glob("resultats_*.csv"))  # rien à côté des passations de l'étude
+    finally:
+        del os.environ["BLEB_FREE_N_CASES"]
+
+
+def test_free_identifier_draws_from_global_playlist():
+    """Avec playlist_globale.txt (tout le dataset), le tirage se fait dedans, et non dans les playlists de l'étude."""
+    sets = {"JB": ["C1__ICA_1"], "GG": ["G1__ICA_1"], "VL": ["V1__ICA_1"]}
+    globale = ["X1__ICA_1", "X2__ICA_1", "X3__ICA_1", "X4__ICA_1", "X5__ICA_1"]
+    os.environ["BLEB_FREE_N_CASES"] = "3"
+    try:
+        with StudyWorkdir(sets) as w:
+            lines = []
+            for c in globale:
+                lines += write_case(w.root / "images", c)
+            (w.root / "playlist_globale.txt").write_text("# dataset\n" + "\n".join(lines) + "\n", encoding="utf-8")
+            at = started_app("autre")
+            assert any("playlist_globale.txt" in x.value for x in at.sidebar.warning), [x.value for x in at.sidebar.warning]
+            assert "Cas 1 / 3" in phase(at)
+            for _ in range(3):
+                answer(at, 0)
+            with open(w.root / "sorties" / "notes_libres.csv", newline="", encoding="utf-8") as f:
+                seen = {Path(r["segmentation"]).name.split(".")[0].replace("_blebs", "") for r in csv.DictReader(f)}
+            assert len(seen) == 3 and seen <= set(globale), seen
     finally:
         del os.environ["BLEB_FREE_N_CASES"]
 

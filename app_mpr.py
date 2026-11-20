@@ -120,10 +120,13 @@ OBSERVERS = {
 }
 PLAYLIST_DIR = Path(os.path.abspath(os.path.expanduser(os.environ.get("BLEB_PLAYLIST_DIR", str(BASE_DIR)))))
 # Identifiant libre (mode étude, identifiant hors OBSERVERS ; demande de F. Autrusseau, 20/11/2026) : FREE_N_CASES cas
-# tirés au hasard parmi tous les cas des playlists de l'étude. Tirage fixé par l'identifiant (même identifiant = mêmes
-# cas, ce qui permet la reprise) ; l'ordre reste mélangé à chaque passation. Résultats à part, hors étude :
-# FREE_RESULTS_DIR et FREE_RATINGS_FILE.
+# tirés au hasard dans la playlist globale du dataset (FREE_PLAYLIST : tous les cas, deux lignes par cas comme les
+# autres playlists). Tant qu'elle n'existe pas, le tirage se fait parmi les cas des trois playlists de l'étude.
+# Tirage fixé par l'identifiant (même identifiant = mêmes cas, ce qui permet la reprise) ; l'ordre reste mélangé à
+# chaque passation. Résultats à part, hors étude : FREE_RESULTS_DIR et FREE_RATINGS_FILE.
 FREE_N_CASES = int(os.environ.get("BLEB_FREE_N_CASES", "50"))
+FREE_PLAYLIST = Path(os.path.abspath(os.path.expanduser(
+    os.environ.get("BLEB_FREE_PLAYLIST", str(PLAYLIST_DIR / "playlist_globale.txt")))))
 FREE_RESULTS_DIR = RESULTS_DIR / "libres"
 FREE_RATINGS_FILE = OUTPUT_DIR / "notes_libres.csv"
 STUDY_RESULTS_DIR, STUDY_RATINGS_FILE = RESULTS_DIR, RATINGS_FILE
@@ -449,15 +452,24 @@ def is_free_id(observer: str) -> bool:
     return bool(observer) and not PLAYLIST_ARG and observer not in OBSERVERS
 
 
+def free_source() -> list[Path]:
+    """Playlist(s) où tirer les cas d'un identifiant libre : la playlist globale si elle existe, sinon celles de l'étude."""
+    if FREE_PLAYLIST.is_file():
+        return [FREE_PLAYLIST]
+    return [PLAYLIST_DIR / fname for _, fname in OBSERVERS.values()]
+
+
 def free_playlist(observer: str) -> list[str]:
-    """FREE_N_CASES cas (paires phase 1 / phase 2) tirés parmi tous les cas des playlists de l'étude.
+    """FREE_N_CASES cas (paires phase 1 / phase 2) tirés dans free_source().
 
     Les cas sont triés par nom, puis tirés avec une graine dérivée de l'identifiant : le même identifiant retrouve
     toujours les mêmes cas (reprise possible). Auteur : Fakhrielddine Bader (20/11/2026)."""
     pairs = set()
-    for _, fname in OBSERVERS.values():
-        entries = read_playlist(str(PLAYLIST_DIR / fname))
-        pairs.update((entries[k], entries[k + 1]) for k in range(0, len(entries) - 1, 2))
+    for path in free_source():
+        entries = read_playlist(str(path))
+        if len(entries) % 2:
+            raise ValueError(f"{path.name} : nombre impair d'entrées (deux lignes par cas attendues)")
+        pairs.update((entries[k], entries[k + 1]) for k in range(0, len(entries), 2))
     seed = int(hashlib.sha256(f"identifiant libre|{observer}".encode("utf-8")).hexdigest()[:16], 16)
     drawn = random.Random(seed).sample(sorted(pairs), min(FREE_N_CASES, len(pairs)))
     return [e for pair in drawn for e in pair]
@@ -472,7 +484,8 @@ with st.sidebar:
     if free_id:
         # résultats à part : rien ne se mélange aux passations de l'étude (globales relues par les fonctions)
         RESULTS_DIR, RATINGS_FILE = FREE_RESULTS_DIR, FREE_RATINGS_FILE
-        st.warning(f"Identifiant hors étude : {FREE_N_CASES} cas tirés au hasard ; résultats enregistrés à part. "
+        _src = FREE_PLAYLIST.name if FREE_PLAYLIST.is_file() else "les playlists de l'étude"
+        st.warning(f"Identifiant hors étude : {FREE_N_CASES} cas tirés au hasard dans {_src} ; résultats enregistrés à part. "
                    f"Observateurs de l'étude : saisissez l'identifiant qui vous a été communiqué ({', '.join(OBSERVERS)}).")
     elif observer and not PLAYLIST_ARG:
         st.caption(f"Observateur : {OBSERVERS[observer][0]}")

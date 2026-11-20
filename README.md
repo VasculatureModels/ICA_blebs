@@ -30,8 +30,10 @@ Les découpes (images et segmentations) sont dans `images/`, à côté de `app_m
 L'observateur lance l'application **sans argument**, saisit son identifiant (majuscules ou minuscules) et clique
 « Démarrer le test » : sa playlist s'ouvre.
 
-**Identifiant libre** (tout autre identifiant, par exemple `TEST` ou `LOUISE`) : 50 cas tirés au hasard parmi ceux des
-trois playlists de l'étude. Le tirage dépend de l'identifiant : le même identifiant retrouve toujours les mêmes cas
+**Identifiant libre** (tout autre identifiant, par exemple `TEST` ou `LOUISE`) : 50 cas tirés au hasard dans la
+playlist globale du dataset, `playlist_globale.txt` (tous les cas, deux lignes par cas, comme les autres playlists ;
+autre fichier : variable `BLEB_FREE_PLAYLIST`). Tant que ce fichier n'existe pas, le tirage se fait parmi les cas des
+trois playlists de l'étude ; le bandeau indique la source. Le tirage dépend de l'identifiant : le même identifiant retrouve toujours les mêmes cas
 (la reprise fonctionne), et l'ordre est mélangé à chaque passation. Un bandeau « Identifiant hors étude » le
 signale. Les réponses sont enregistrées **à part** : `notes_libres.csv` et `resultats/libres/` (aussi dans la
 sauvegarde distante, sous `libres/`). Elles ne se mélangent jamais aux passations de l'étude. Nombre de cas :
