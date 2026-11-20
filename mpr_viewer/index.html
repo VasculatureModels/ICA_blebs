@@ -730,7 +730,7 @@ async function build(args) {
   // --- démarrage -----------------------------------------------------------------------------------------------------------------------
   // --- bloc « Évaluation » du panneau : nom du patient, question ou avis par bleb, bouton « Enregistrer » -----------------
   // Auteurs de ce bloc : Fakhrielddine Bader, Florent Autrusseau (16/11/2026).
-  // Progression dans le panneau : elle reste visible en plein écran (remarque de Louise, 20/11/2026).
+  // Progression (« Cas 12 / 50 — phase 2/2 ») dans le panneau : elle reste visible en plein écran (remarque de Louise, 20/11/2026).
   $("progress").textContent = args.progress_text || "";
   $("progress").style.display = args.progress_text ? "" : "none";
   $("caseLabel").textContent = args.case_label || "";

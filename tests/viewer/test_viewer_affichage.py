@@ -6,9 +6,9 @@ OK = []
 def check(nom, cond, detail=""):
     OK.append(cond); print(("OK   " if cond else "ECHEC"), nom, detail)
 with Banc() as b:
-    b.charger(args_phase2(lab, img, progress_text="Cas 12 / 60 — phase 2/2\nReste : 49 cas, celui-ci compris"))
+    b.charger(args_phase2(lab, img, progress_text="Cas 12 / 50 — phase 2/2"))
     txt = b.fr.evaluate("document.getElementById('progress').innerText")
-    check("compteur affiché dans le panneau", "Reste : 49 cas" in txt and b.fr.evaluate("document.getElementById('progress').style.display") == "", repr(txt))
+    check("compteur affiché dans le panneau", txt == "Cas 12 / 50 — phase 2/2" and b.fr.evaluate("document.getElementById('progress').style.display") == "", repr(txt))
     check("compteur à l'intérieur de la zone mise en plein écran", b.fr.evaluate("document.getElementById('wrap').contains(document.getElementById('progress'))"))
     b.fr.evaluate("document.getElementById('wrap').requestFullscreen()"); b.page.wait_for_timeout(500)
     fs = b.fr.evaluate("!!document.fullscreenElement")

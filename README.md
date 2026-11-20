@@ -184,7 +184,7 @@ les secrets de l'application (`.streamlit/secrets.toml` en local, jamais dans le
     retouches ; elles sont maintenant conservées, et un choix qui efface des retouches (annuler « Retoucher »,
     « Supprimer ») demande un second clic ;
   - réticule de navigation blanc en tirets (il se confondait avec un bleb jaune) ;
-  - progression (cas courant, cas restants) dans le panneau du viewer : visible aussi en plein écran ;
+  - progression (« Cas 12 / 50 — phase 2/2 ») dans le panneau du viewer : visible aussi en plein écran ;
   - Shift + déplacement de la souris : le réticule suit la souris et les trois vues se synchronisent (comme dans Slicer) ;
   - identifiants libres : 50 cas tirés au hasard, résultats à part ;
   - jeux de 50 cas (20 communs + 30 propres), `tirer_jeux` v1.1.0 ; tests du viewer dans un navigateur.
