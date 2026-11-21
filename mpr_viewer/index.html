@@ -31,6 +31,7 @@
   .cls input[type=color] { width: 26px; height: 20px; padding: 0; border: 0; background: none; }
   .small { font-size: 11.5px; color: #bbb; margin-top: 6px; line-height: 1.35; }
   h4 { margin: 4px 0 2px; font-size: 12px; color: #9ab; text-transform: uppercase; letter-spacing: .04em; }
+  #progress { font-weight: 600; font-size: 12.5px; color: #fff; background: #2c2c30; border-radius: 5px; padding: 4px 6px; margin: 0 0 8px; white-space: pre-wrap; }
   #caseLabel { font-weight: 600; font-size: 12.5px; color: #ffd24d; margin: 0 0 8px; overflow-wrap: anywhere; }
   #evalTitle { margin: 4px 0 6px; font-size: 13px; overflow-wrap: anywhere; }
   #evalOpts label { display: flex; align-items: center; gap: 7px; margin: 0; padding: 5px 6px; border-radius: 5px; cursor: pointer; font-size: 13px; }
@@ -51,6 +52,7 @@
 <body>
 <div id="wrap">
   <div id="panel">
+    <div id="progress" style="display:none"></div>
     <div id="caseLabel" style="display:none"></div>
     <div id="evalBox" style="display:none">
       <h4>Évaluation</h4>
@@ -149,6 +151,7 @@ function loadLibs() { if (!libsPromise) libsPromise = loadScript(THREE_URLS).the
 // ---------------------------------------------------------------------------
 let S = null, currentSceneId = null;
 const PLANES = ["axial", "coronal", "sagittal"];
+const CROSS_COLOR = "rgba(255,255,255,0.75)";   // réticule de navigation (2D) ; repère 3D : même blanc
 
 async function build(args) {
   if (S) S.teardown();
@@ -231,8 +234,10 @@ async function build(args) {
     // réticule : position courante dans les deux autres plans
     const [c, r] = MPR.voxelToPixel(pl, v, cur[0], cur[1], cur[2]);
     const cx = p.ox + (c + 0.5) * p.ppx, cy = p.oy + (r + 0.5) * p.ppy;
-    ctx.strokeStyle = "rgba(255,210,77,0.8)"; ctx.lineWidth = 1;
+    // Blanc en tirets : ni jaune ni aucune couleur de bleb, pour ne pas le confondre avec un bleb (remarque de Louise, 20/11/2026).
+    ctx.strokeStyle = CROSS_COLOR; ctx.lineWidth = 1; ctx.setLineDash([6, 4]);
     ctx.beginPath(); ctx.moveTo(cx, p.oy); ctx.lineTo(cx, p.oy + h * p.ppy); ctx.moveTo(p.ox, cy); ctx.lineTo(p.ox + w * p.ppx, cy); ctx.stroke();
+    ctx.setLineDash([]);
     // curseur du pinceau
     if (mode !== "navigate" && p.mouse && hoverPlane === pl) {
       ctx.strokeStyle = mode === "erase" ? "#ff5050" : (classes[brushLabel] ? classes[brushLabel].hex : "#fff");
@@ -287,7 +292,7 @@ async function build(args) {
     renderer.domElement.style.cssText = "position:absolute;inset:0;width:100%;height:100%";
     const controls = new THREE.OrbitControls(camera, renderer.domElement);
     const material = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 40, specular: 0x222222, side: THREE.DoubleSide });
-    const marker = new THREE.Mesh(new THREE.SphereGeometry(diag * 0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffd24d }));
+    const marker = new THREE.Mesh(new THREE.SphereGeometry(diag * 0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
     scene.add(marker);
     const cursor = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14),
       new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false }));
@@ -571,7 +576,8 @@ async function build(args) {
         else if (drag.type === "nav" && drag.plane === pl) navigateTo(pl, e);
         else if (drag.type === "pan" && drag.plane === pl) { p.view.px = drag.px + ev.clientX - drag.x; p.view.py = drag.py + ev.clientY - drag.y; requestDraw(); }
         else if (drag.type === "wl") { setWL(drag.c + (ev.clientY - drag.y) * 0.5, drag.w + (ev.clientX - drag.x) * 0.7); }
-      } else if (mode !== "navigate") requestDraw();
+      } else if (ev.shiftKey) navigateTo(pl, e);        // Shift + souris : les autres vues suivent (comme dans Slicer)
+      else if (mode !== "navigate") requestDraw();
     });
     on(p.canvas, "pointerup", () => endDrag());
     on(p.canvas, "pointercancel", () => endDrag());
@@ -615,9 +621,9 @@ async function build(args) {
 
   // --- modes, pinceau --------------------------------------------------------------------------------------------------------------
   const HELP = {
-    navigate: "Clic gauche : placer le réticule · Molette : défiler · Ctrl+molette : zoom · Clic milieu : déplacer · Clic droit : fenêtrage · Double-clic sur une vue : agrandir / revenir aux 4 vues.",
-    paint: "Clic gauche : peindre avec la couleur choisie (dans la vue 3D : sphère autour du point visé, clic droit = rotation) · Molette : défiler · Ctrl+molette : zoom · Clic milieu : déplacer · Clic droit : fenêtrage · Double-clic : agrandir la vue.",
-    erase: "Clic gauche : effacer des blebs (dans la vue 3D aussi) · Molette : défiler · Ctrl+molette : zoom · Clic milieu : déplacer · Clic droit : fenêtrage · Double-clic : agrandir la vue.",
+    navigate: "Clic gauche (ou Shift + souris) : placer le réticule · Molette : défiler · Ctrl+molette : zoom · Clic milieu : déplacer · Clic droit : fenêtrage · Double-clic sur une vue : agrandir / revenir aux 4 vues.",
+    paint: "Clic gauche : peindre avec la couleur choisie (dans la vue 3D : sphère autour du point visé, clic droit = rotation) · Shift + souris : déplacer le réticule · Molette : défiler · Ctrl+molette : zoom · Clic milieu : déplacer · Clic droit : fenêtrage · Double-clic : agrandir la vue.",
+    erase: "Clic gauche : effacer des blebs (dans la vue 3D aussi) · Shift + souris : déplacer le réticule · Molette : défiler · Ctrl+molette : zoom · Clic milieu : déplacer · Clic droit : fenêtrage · Double-clic : agrandir la vue.",
   };
   const modeBtns = document.querySelectorAll("#modes button");
   function setMode(m) {
@@ -724,6 +730,9 @@ async function build(args) {
   // --- démarrage -----------------------------------------------------------------------------------------------------------------------
   // --- bloc « Évaluation » du panneau : nom du patient, question ou avis par bleb, bouton « Enregistrer » -----------------
   // Auteurs de ce bloc : Fakhrielddine Bader, Florent Autrusseau (16/11/2026).
+  // Progression (« Cas 12 / 50 — phase 2/2 ») dans le panneau : elle reste visible en plein écran (remarque de Louise, 20/11/2026).
+  $("progress").textContent = args.progress_text || "";
+  $("progress").style.display = args.progress_text ? "" : "none";
   $("caseLabel").textContent = args.case_label || "";
   $("caseLabel").style.display = args.case_label ? "" : "none";
   const evalOpts = $("evalOpts"), evalSave = $("evalSave"), verdictBlebs = args.verdict_blebs || null;
@@ -776,6 +785,7 @@ async function build(args) {
     }
   } else if (verdictBlebs) {                                  // phase 2 : un avis par bleb pré-segmenté
     const origHex = {}, rowsOf = {}, added = addedBlebs;
+    let pendingDrop = null;                                   // « bleb|choix » en attente du clic de confirmation
     // Outils de correction : visibles seulement pour le bleb « activeBleb » (pinceau = ce bleb, gomme = ce bleb seul).
     const showTools = (id) => {
       activeBleb = id;
@@ -827,6 +837,23 @@ async function build(args) {
           const btn = document.createElement("button");
           btn.textContent = o.label; btn.dataset.verdict = o.value;
           on(btn, "click", () => {
+            // Retouches de ce bleb conservées (bug du 20/11/2026, signalé par L. et L.) :
+            //  - revenir sur un bleb déjà retouché (« Retoucher » alors qu'un autre bleb est en cours de correction)
+            //    réaffiche ses outils et garde ses retouches ;
+            //  - un choix qui efface des retouches (annuler « Retoucher », ou « Supprimer ») demande un second clic.
+            // Auteur de ce bloc : Fakhrielddine Bader (20/11/2026).
+            const retouched = chosenVerdicts[b.id] === "retouche", nChanged = retouched ? (MPR.changedByLabel(v)[b.id] || 0) : 0;
+            if (retouched && o.value === "retouche" && nChanged > 0 && activeBleb !== b.id) {
+              pendingDrop = null; showMsg(""); showTools(b.id); return;
+            }
+            const dropKey = b.id + "|" + o.value;
+            if (retouched && nChanged > 0 && pendingDrop !== dropKey) {
+              pendingDrop = dropKey;
+              showMsg("⚠ " + b.name + " : ce choix efface les retouches faites sur ce bleb (" + nChanged + " voxels).\n" +
+                "Cliquez de nouveau sur « " + o.label + " » pour confirmer.");
+              return;
+            }
+            pendingDrop = null;
             showMsg("");
             const undo = chosenVerdicts[b.id] === o.value;      // second clic sur le même choix : on l'annule
             if (chosenVerdicts[b.id] === "retouche" && !(o.value === "retouche" && !undo)) {

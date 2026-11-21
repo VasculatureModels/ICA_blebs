@@ -1,0 +1,4 @@
+# Cas exclus de l'étude des observateurs : retirés de playlist_eligibles.txt (donc du tirage des jeux et des
+# identifiants libres) ; ils restent dans playlist_globale.txt. Format : cas ; motif ; décision
+RCAN_01_175_S_0.4__ICA_1 ; segmentation de l'anévrisme médiocre ; F. Autrusseau, « > 3 blebs » en phase 1 de sa session de test VL_20261120_072139 ; exclusion validée le 20/11/2026
+RCAN_01_344_S_0.4__ICA_1 ; segmentation de l'anévrisme médiocre ; F. Autrusseau, « > 3 blebs » en phase 1 de sa session de test VL_20261120_072139 ; exclusion validée le 20/11/2026

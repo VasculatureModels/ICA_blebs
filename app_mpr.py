@@ -60,10 +60,16 @@ Historique :
     un second clic le rétablit.
     19/11/2026, Fakhrielddine Bader, version de l'étude des observateurs :
     - chaque identifiant ouvre sa propre playlist (OBSERVERS : JB, GG, VL ; jeux de 60 cas, dont 20 communs) ;
-      un identifiant inconnu est refusé. Avec une playlist en argument, mode libre (calibration, démonstration) ;
+      un identifiant inconnu est refusé (remplacé le 20/11/2026 par les identifiants libres). Avec une playlist en argument, mode libre (calibration, démonstration) ;
     - le nom du patient n'est plus affiché, dans aucune phase (option « Masquer le nom du patient » retirée) ;
     - phase 1 : la rangée d'outils (« Navigation », seul outil sans correction) n'est plus affichée ;
     - l'aperçu final (« phase 3 ») est retiré : après la phase 2, on passe directement au cas suivant.
+    20/11/2026, Fakhrielddine Bader, retours des tests (Louise, Laurence, Adrien, F. Autrusseau) :
+    - viewer : retouches d'un bleb conservées quand on y revient (bug) ; choix qui efface des retouches confirmé par
+      un second clic ; réticule blanc en tirets ; progression visible en plein écran ; Shift + souris synchronise les vues ;
+    - identifiant hors OBSERVERS (mode étude) : FREE_N_CASES cas tirés au hasard parmi les éligibles ; GLOB… : parmi
+      toute la cohorte ; résultats à part (resultats/libres/) ;
+    - jeux de l'étude : 50 cas (20 communs + 30 propres).
 
 Décision par bleb en phase 2 : sans choix, un bleb pré-segmenté est gardé tel quel (« garde »). L'observateur peut
 le retoucher (« Retoucher » : pinceau et gomme sur ce bleb seul) ou le supprimer (« Supprimer » : il est rendu à
@@ -114,6 +120,22 @@ OBSERVERS = {
     "VL": ("Vincent L'Allinec", "playlist_VL.txt"),
 }
 PLAYLIST_DIR = Path(os.path.abspath(os.path.expanduser(os.environ.get("BLEB_PLAYLIST_DIR", str(BASE_DIR)))))
+# Identifiants hors étude, en mode étude (décision du 20/11/2026), FREE_N_CASES cas tirés au hasard :
+#  - identifiant commençant par GLOBAL_PREFIX (« GLOB », « glob », « GLOB-LOUISE »…) : dans la playlist globale de toute
+#    la cohorte, éligibles et non éligibles (GLOBAL_PLAYLIST) ;
+#  - tout autre identifiant (identifiant libre) : parmi les cas éligibles (FREE_PLAYLIST, entrée du tirage de l'étude) ;
+#    tant qu'elle n'existe pas, parmi les cas des trois playlists de l'étude.
+# Tirage fixé par l'identifiant (même identifiant = mêmes cas, ce qui permet la reprise ; un autre identifiant donne un
+# autre tirage) ; l'ordre reste mélangé à chaque passation. Résultats à part : FREE_RESULTS_DIR et FREE_RATINGS_FILE.
+FREE_N_CASES = int(os.environ.get("BLEB_FREE_N_CASES", "50"))
+FREE_PLAYLIST = Path(os.path.abspath(os.path.expanduser(
+    os.environ.get("BLEB_FREE_PLAYLIST", str(PLAYLIST_DIR / "playlist_eligibles.txt")))))
+GLOBAL_PREFIX = "GLOB"
+GLOBAL_PLAYLIST = Path(os.path.abspath(os.path.expanduser(
+    os.environ.get("BLEB_GLOBAL_PLAYLIST", str(PLAYLIST_DIR / "playlist_globale.txt")))))
+FREE_RESULTS_DIR = RESULTS_DIR / "libres"
+FREE_RATINGS_FILE = OUTPUT_DIR / "notes_libres.csv"
+STUDY_RESULTS_DIR, STUDY_RATINGS_FILE = RESULTS_DIR, RATINGS_FILE
 PLAYLIST_ARG = str(Path(sys.argv[1]).resolve()) if len(sys.argv) > 1 else None
 
 SHUFFLE_CASES = True  # ordre des cas aléatoire pour chaque passation (False : ordre de la playlist)
@@ -431,25 +453,83 @@ def observer_playlist(observer: str) -> str | None:
     return str(PLAYLIST_DIR / OBSERVERS[observer][1]) if observer in OBSERVERS else None
 
 
+def is_free_id(observer: str) -> bool:
+    """Identifiant hors étude (mode étude seulement) : il reçoit un tirage de FREE_N_CASES cas."""
+    return bool(observer) and not PLAYLIST_ARG and observer not in OBSERVERS
+
+
+def is_global_id(observer: str) -> bool:
+    """Identifiant hors étude qui tire ses cas dans toute la cohorte (« GLOB », « GLOB-LOUISE »…)."""
+    return is_free_id(observer) and observer.upper().startswith(GLOBAL_PREFIX)
+
+
+def free_source(observer: str) -> list[Path]:
+    """Playlist(s) où tirer les cas d'un identifiant hors étude.
+
+    GLOB… : la playlist globale (erreur si elle n'existe pas encore) ; autre identifiant : la playlist des cas
+    éligibles si elle existe, sinon les trois playlists de l'étude."""
+    if is_global_id(observer):
+        if not GLOBAL_PLAYLIST.is_file():
+            raise ValueError(f"la playlist de toute la cohorte ({GLOBAL_PLAYLIST.name}) n'est pas encore disponible")
+        return [GLOBAL_PLAYLIST]
+    if FREE_PLAYLIST.is_file():
+        return [FREE_PLAYLIST]
+    return [PLAYLIST_DIR / fname for _, fname in OBSERVERS.values()]
+
+
+def free_source_label(observer: str) -> str:
+    """Source du tirage, telle qu'affichée dans le bandeau de la barre latérale."""
+    if is_global_id(observer):
+        return f"toute la cohorte ({GLOBAL_PLAYLIST.name})"
+    return f"les cas éligibles ({FREE_PLAYLIST.name})" if FREE_PLAYLIST.is_file() else "les cas des playlists de l'étude"
+
+
+def free_playlist(observer: str) -> list[str]:
+    """FREE_N_CASES cas (paires phase 1 / phase 2) tirés dans free_source(observer).
+
+    Les cas sont triés par nom, puis tirés avec une graine dérivée de l'identifiant : le même identifiant retrouve
+    toujours les mêmes cas (reprise possible). Auteur : Fakhrielddine Bader (20/11/2026)."""
+    pairs = set()
+    for path in free_source(observer):
+        entries = read_playlist(str(path))
+        if len(entries) % 2:
+            raise ValueError(f"{path.name} : nombre impair d'entrées (deux lignes par cas attendues)")
+        pairs.update((entries[k], entries[k + 1]) for k in range(0, len(entries), 2))
+    seed = int(hashlib.sha256(f"identifiant libre|{observer}".encode("utf-8")).hexdigest()[:16], 16)
+    drawn = random.Random(seed).sample(sorted(pairs), min(FREE_N_CASES, len(pairs)))
+    return [e for pair in drawn for e in pair]
+
+
 with st.sidebar:
     st.header("Session")
     observer = st.text_input("Identifiant de l'observateur").strip()
     if observer and not PLAYLIST_ARG:
         observer = observer.upper()          # mode étude : « jb » et « JB » désignent le même observateur
-    unknown = bool(observer) and observer_playlist(observer) is None
-    if unknown:
-        st.error("Identifiant inconnu. Saisissez l'identifiant qui vous a été communiqué.")
+    free_id = is_free_id(observer)
+    if free_id:
+        # résultats à part : rien ne se mélange aux passations de l'étude (globales relues par les fonctions)
+        RESULTS_DIR, RATINGS_FILE = FREE_RESULTS_DIR, FREE_RATINGS_FILE
+        st.warning(f"Identifiant hors étude : {FREE_N_CASES} cas tirés au hasard parmi {free_source_label(observer)} ; "
+                   f"résultats enregistrés à part. "
+                   f"Observateurs de l'étude : saisissez l'identifiant qui vous a été communiqué ({', '.join(OBSERVERS)}).")
     elif observer and not PLAYLIST_ARG:
         st.caption(f"Observateur : {OBSERVERS[observer][0]}")
-    playlist_path = observer_playlist(observer) if observer and not unknown else None
+    # identifiant libre : pas de fichier, la playlist est tirée en mémoire ; ce nom sert seulement de clé d'état
+    playlist_path = (f"tirage libre {observer}" if free_id else observer_playlist(observer)) if observer else None
     playlist, playlist_error = [], None
-    if playlist_path and Path(playlist_path).exists():
+    if free_id:
+        try:
+            playlist = free_playlist(observer)
+        except (OSError, ValueError) as e:
+            playlist_error = f"tirage impossible : {e}"
+            st.error(playlist_error)
+    elif playlist_path and Path(playlist_path).exists():
         try:
             playlist = read_playlist(playlist_path)
         except ValueError as e:
             playlist_error = str(e)
     playlist_ok = bool(playlist) and len(playlist) % 2 == 0
-    started = bool(observer) and not unknown and st.session_state.get("started_by") == observer
+    started = bool(observer) and st.session_state.get("started_by") == observer
     if started:  # pas de bouton de démarrage pendant le test : un clic accidentel ferait repartir de zéro
         st.caption("Test en cours : vos réponses sont enregistrées à chaque « Enregistrer ».")
     else:
@@ -462,7 +542,7 @@ with st.sidebar:
             if st.button("Nouveau test (repartir de zéro)", use_container_width=True):
                 new_run(observer)
                 st.rerun()
-        elif st.button("▶ Démarrer le test", type="primary", disabled=not observer or unknown,
+        elif st.button("▶ Démarrer le test", type="primary", disabled=not observer,
                        use_container_width=True):
             new_run(observer)
             st.rerun()
@@ -482,15 +562,15 @@ with st.sidebar:
         import nibabel  # noqa: F401
     except ImportError:
         st.warning("nibabel n'est pas installé : lecture des NIfTI et export impossibles (`pip install nibabel`).")
-    rt.admin_panel(st, OUTPUT_DIR, RESULTS_DIR, RATINGS_FILE)  # téléchargement des résultats (si ADMIN_PASSWORD est défini)
+    rt.admin_panel(st, OUTPUT_DIR, STUDY_RESULTS_DIR, STUDY_RATINGS_FILE)  # téléchargement de tous les résultats, resultats/libres/ compris (si ADMIN_PASSWORD est défini)
 
-if not observer or unknown:
+if not observer:
     st.info("Saisissez votre identifiant dans la barre latérale pour commencer.")
     st.stop()
 if not started:
     st.info("Cliquez sur « Démarrer le test » (ou « Reprendre le test ») dans la barre latérale.")
     st.stop()
-if not Path(playlist_path).exists():
+if not free_id and not Path(playlist_path).exists():
     st.error(f"Playlist introuvable : {playlist_path}")
     st.stop()
 if playlist_error:
@@ -599,6 +679,8 @@ if case is not None:
     viewer_value = viewer_component(
         scene_id=f"{current}|{int(editable)}",
         case_label=None,                    # nom du patient jamais affiché (étude en aveugle)
+        # progression affichée dans le panneau du viewer : visible aussi en plein écran (remarque de Louise, 20/11/2026)
+        progress_text=f"Cas {idx // 2 + 1} / {len(playlist) // 2} — phase {1 if phase == PHASE_COUNT else 2}/2",
         eval_title=COUNT_QUESTION if phase == PHASE_COUNT else VERDICT_QUESTION,
         count_options=[{"value": k, "label": v} for k, v in BLEB_OPTIONS.items()] if phase == PHASE_COUNT else None,
         zero_hint=ZERO_HINT if SKIP_PHASE2_IF_ZERO_BLEBS else "",

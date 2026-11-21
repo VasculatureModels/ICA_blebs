@@ -17,8 +17,8 @@ Après la phase 2, on passe directement au cas suivant (l'aperçu final, « phas
 
 ## Étude des observateurs : un jeu par identifiant
 
-Chaque observateur a son identifiant et sa playlist (jeu de 60 cas : 20 cas communs aux trois observateurs, pour
-mesurer leur accord, et 40 cas propres) :
+Chaque observateur a son identifiant et sa playlist (jeu de 50 cas : 20 cas communs aux trois observateurs, pour
+mesurer leur accord, et 30 cas propres ; décision du 20/11/2026, tirage `tirer_jeux` v1.1.0) :
 
 | Identifiant | Observateur | Playlist |
 |---|---|---|
@@ -26,18 +26,54 @@ mesurer leur accord, et 40 cas propres) :
 | `GG` | Guillaume Geffroy | `playlist_GG.txt` |
 | `VL` | Vincent L'Allinec | `playlist_VL.txt` |
 
-Les découpes (images et segmentations) vont dans `images/`, à côté de `app_mpr.py` ; elles ne sont pas dans le dépôt.
+Les trois jeux sont tirés parmi les **144 cas éligibles** de `playlist_eligibles.txt` : les 146 cas de la playlist
+de l'étude du 17/11/2026, moins les 2 cas exclus de `cas_exclus.txt`. 110 cas sont tirés (20 communs + 3 × 30 propres),
+34 ne le sont pas.
+
+Les découpes (images et segmentations) sont dans `images/`, à côté de `app_mpr.py`.
 L'observateur lance l'application **sans argument**, saisit son identifiant (majuscules ou minuscules) et clique
-« Démarrer le test » : sa playlist s'ouvre. Un identifiant inconnu est refusé.
+« Démarrer le test » : sa playlist s'ouvre.
+
+Identifiants hors étude (même lancement, sans argument) : 50 cas tirés au hasard, réponses enregistrées **à part**
+(`notes_libres.csv` et `resultats/libres/`, aussi dans la sauvegarde distante sous `libres/`), jamais mélangées aux
+passations de l'étude. Un bandeau « Identifiant hors étude » indique d'où viennent les cas.
+
+| Identifiant | Cas tirés parmi | Playlist source |
+|---|---|---|
+| `JB`, `GG`, `VL` (étude) | les éligibles : 50 cas = 20 communs + 30 propres (tirage fixe) | `playlist_JB/GG/VL.txt` |
+| `GLOB`, `glob`, `GLOB-…` | toute la cohorte, éligibles et non éligibles | `playlist_globale.txt` |
+| tout autre identifiant (`TEST`, `LOUISE`…) | les cas éligibles | `playlist_eligibles.txt` |
+
+Le tirage dépend de l'identifiant : le même identifiant retrouve toujours les mêmes cas (la reprise fonctionne), un
+autre identifiant (`GLOB-2`, `TEST-2`…) donne un autre tirage ; l'ordre est mélangé à chaque passation. Sans
+`playlist_eligibles.txt`, un identifiant libre tire parmi les cas des trois playlists de l'étude ; sans
+`playlist_globale.txt`, `GLOB` est refusé. Variables : `BLEB_FREE_N_CASES` (50), `BLEB_FREE_PLAYLIST`,
+`BLEB_GLOBAL_PLAYLIST`.
+
+Cas exclus de l'étude : `cas_exclus.txt` (cas, motif, date). Ils ne sont pas dans `playlist_eligibles.txt`, donc
+ni dans le tirage des jeux ni dans celui des identifiants libres ; ils restent dans `playlist_globale.txt`.
 
 ```bash
 uv run streamlit run app_mpr.py
 ```
 
-Les playlists sont lues dans le dossier de `app_mpr.py`, ou dans `BLEB_PLAYLIST_DIR`. Elles sont produites par
-`outils/tirer_jeux.py` (tirage au hasard, graine fixe ; voir l'en-tête du script), qui écrit aussi le groupe de
-chaque cas (`tirage_jeux.csv`). Le manifeste des découpes (`crops_manifest.csv`) ne doit jamais être donné aux
-observateurs.
+Les playlists sont lues dans le dossier de `app_mpr.py`, ou dans `BLEB_PLAYLIST_DIR`. Les trois jeux sont produits
+par `outils/tirer_jeux.py` (v1.1.0, graine 20261119 ; voir l'en-tête du script). Pour refaire le tirage à
+l'identique, dans un dossier de sortie neuf :
+
+```bash
+uv run python outils/tirer_jeux.py --playlist-etude playlist_eligibles.txt \
+    --manifeste <crops_manifest.csv des découpes> --calibration <analyses_calibration.txt> --sortie <dossier_neuf>
+```
+
+L'outil écrit aussi `tirage_jeux.csv` (groupe de chaque cas) et `tirage_jeux.json` (graine, effectifs, empreintes des
+entrées). Ces deux fichiers et le manifeste des découpes (`crops_manifest.csv`, qui contient le nombre de blebs
+pré-segmentés) ne vont **ni dans le dépôt, qui est public, ni chez les observateurs**.
+
+Exclure un cas : l'ajouter à `cas_exclus.txt` (cas ; motif ; décision), le retirer de `playlist_eligibles.txt`,
+puis refaire le tirage et remplacer les trois jeux, **avant la première passation de l'étude** (jamais pendant).
+Seul motif retenu à ce jour : segmentation de l'anévrisme médiocre. Une pré-segmentation des blebs défaillante
+n'est pas un motif d'exclusion : c'est ce que l'étude évalue.
 
 ## Installation et lancement
 
@@ -120,6 +156,7 @@ Les fichiers peuvent être en NRRD ou en NIfTI. L'image et la segmentation doive
   `nb_blebs_final` donne le nombre de blebs de la segmentation enregistrée en phase 2 ; elle se compare au
   `nb_blebs` de la phase 1 du même cas.
 - `resultats/resultats_<observateur>_<session>.csv` : récapitulatif écrit à la fin du test.
+- Identifiants libres : mêmes fichiers, dans `notes_libres.csv` et `resultats/libres/`.
 - `resultats/corrections_<observateur>_<session>/*_corrige.nii.gz` : segmentation corrigée, dans l'orientation et
   l'espace du fichier d'origine. Écrite pour chaque cas : après la phase 2 (la pré-segmentation elle-même si
   rien n'a été modifié), ou après « 0 bleb » (segmentation sans bleb).
@@ -131,11 +168,16 @@ Les fichiers peuvent être en NRRD ou en NIfTI. L'image et la segmentation doive
 | `app_mpr.py` | application Streamlit (protocole, enregistrement des réponses) |
 | `mpr_utils.py` | lecture des volumes, réorientation, export NIfTI |
 | `mpr_viewer/` | viewer MPR et 3D (composant Streamlit) |
-| `tests/test_app_mpr.py` | tests sur volumes synthétiques : `uv run python tests/test_app_mpr.py` |
-| `playlist_JB.txt`, `playlist_GG.txt`, `playlist_VL.txt` | jeux de l'étude (un par observateur) |
-| `outils/tirer_jeux.py` | tirage des jeux ; tests : `uv run python tests/test_tirer_jeux.py` |
+| `tests/test_app_mpr.py` | tests sur volumes synthétiques : `python tests/test_app_mpr.py` |
+| `tests/viewer/` | tests du viewer dans un vrai navigateur (Playwright) : `python tests/viewer/test_viewer_retouche.py`, `python tests/viewer/test_viewer_affichage.py` ; prérequis dans `tests/viewer/banc.py` |
+| `playlist_JB.txt`, `playlist_GG.txt`, `playlist_VL.txt` | jeux de l'étude (un par observateur, 50 cas) |
+| `playlist_eligibles.txt` | les 144 cas éligibles : entrée du tirage des jeux, et source des identifiants libres |
+| `playlist_globale.txt` | toute la cohorte (identifiants `GLOB…`) ; ajoutée avec l'export de toute la cohorte |
+| `cas_exclus.txt` | cas exclus de l'étude, avec motif et décision |
+| `images/` | découpes : image, segmentation (artères, anévrisme) et pré-segmentation des blebs de chaque cas |
+| `outils/tirer_jeux.py` | tirage des jeux ; tests : `python tests/test_tirer_jeux.py` |
 | `outils/verifier_sorties.py` | vérification des sorties d'une passation |
-| `pyproject.toml`, `uv.lock` | environnement uv ; `requirements.txt` reste disponible pour pip |
+| `pyproject.toml`, `requirements.txt` | environnement (uv ou pip) ; Streamlit Cloud utilise `requirements.txt` |
 
 ## Vérifier ce qu'une passation a enregistré
 
@@ -153,8 +195,10 @@ Test de bout en bout (passation complète simulée, puis fichiers altérés expr
 
 ## Déploiement sur Streamlit Community Cloud
 
-Community Cloud n'utilise qu'un seul fichier de dépendances, et `uv.lock` passe avant `requirements.txt`. Depuis
-l'ajout de `uv.lock`, c'est donc lui qui définit l'environnement de l'application déployée.
+Community Cloud n'utilise qu'un seul fichier de dépendances. Le dépôt n'a pas de `uv.lock` : c'est donc
+`requirements.txt` qui définit l'environnement de l'application déployée. Le disque de Community Cloud est
+éphémère : les résultats sont envoyés à chaque « Enregistrer » vers la sauvegarde distante (UNCloud), configurée dans
+les secrets de l'application (`.streamlit/secrets.toml` en local, jamais dans le dépôt).
 
 ## Historique
 
@@ -168,3 +212,15 @@ l'ajout de `uv.lock`, c'est donc lui qui définit l'environnement de l'applicati
 - 19/11/2026, Fakhrielddine Bader : étude des observateurs — un jeu par identifiant (`JB`, `GG`, `VL` ; 60 cas dont
   20 communs), outil de tirage `outils/tirer_jeux.py` ; nom du patient jamais affiché ; plus de rangée d'outils en
   phase 1 ; aperçu final (phase 3) retiré ; données, réponses de test et scripts annexes retirés du dépôt.
+- 20/11/2026, Fakhrielddine Bader, retours des tests (Louise, Laurence, Adrien, Florent Autrusseau) :
+  - bug corrigé : revenir sur un bleb déjà retouché (« Retoucher » après être passé à un autre bleb) effaçait ses
+    retouches ; elles sont maintenant conservées, et un choix qui efface des retouches (annuler « Retoucher »,
+    « Supprimer ») demande un second clic ;
+  - réticule de navigation blanc en tirets (il se confondait avec un bleb jaune) ;
+  - progression (« Cas 12 / 50 — phase 2/2 ») dans le panneau du viewer : visible aussi en plein écran ;
+  - Shift + déplacement de la souris : le réticule suit la souris et les trois vues se synchronisent (comme dans Slicer) ;
+  - identifiants hors étude : 50 cas tirés au hasard parmi les éligibles (identifiant libre) ou parmi toute la
+    cohorte (`GLOB…`), résultats à part ;
+  - 2 cas exclus (segmentation de l'anévrisme médiocre, `cas_exclus.txt`) ; `playlist_eligibles.txt` (144 cas) ;
+  - jeux de 50 cas (20 communs + 30 propres), `tirer_jeux` v1.1.0, tirés sur les 144 éligibles ; 5 cas tirés
+    ajoutés dans `images/` ; tests du viewer dans un navigateur.
