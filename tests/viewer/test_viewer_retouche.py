@@ -45,6 +45,29 @@ with Banc() as b:
     val = b.page.evaluate("window.values[window.values.length-1]")
     check("6. valeur enregistrée : Bleb 1 retouché avec ses voxels", val["verdicts"] == {"3": "retouche"} and val["counts"]["3"] == a,
           f"{val['verdicts']} {val['counts']}")
+    # 7. scénario de Louise avec un NOUVEAU bleb : A retouché -> « + Nouveau bleb » dessiné -> retour à A -> retour au nouveau
+    neuf(); i0 = b.compte(3)
+    b.bouton_bleb("Bleb 1", "Retoucher"); b.peindre_axial(dy=40); a1 = b.compte(3)
+    b.fr.evaluate("document.getElementById('evalAdd').click()")
+    nouveau = 5                                     # 1er label libre après les blebs pré-segmentés 3 et 4 (nommé « Bleb 3 »)
+    check("7. nouveau bleb créé, ses outils affichés", titre().startswith("Retouche : ") and "Bleb 1" not in titre(), titre())
+    b.peindre_axial(dy=-40); n1 = b.compte(nouveau)
+    check("7. nouveau bleb dessiné, Bleb 1 intact", n1 > 0 and b.compte(3) == a1, f"nouveau {n1}, bleb 1 {a1} -> {b.compte(3)}")
+    b.bouton_bleb("Bleb 1", "Retoucher")
+    check("7. retour sur Bleb 1 : ses retouches sont toujours là", b.compte(3) == a1 > i0 and titre() == "Retouche : Bleb 1", f"{i0} -> {a1} -> {b.compte(3)}")
+    b.peindre_axial(dx=40); a2 = b.compte(3)
+    check("7. nouvelle retouche de Bleb 1 ajoutée aux précédentes", a2 > a1 and b.compte(nouveau) == n1, f"{a1} -> {a2}, nouveau {b.compte(nouveau)}")
+    b.fr.evaluate("""[...document.querySelectorAll('#evalOpts .row button')].find(x => x.textContent === 'Dessiner').click()""")
+    b.peindre_axial(dx=-40); n2 = b.compte(nouveau)
+    check("7. retour au nouveau bleb : il garde son dessin, Bleb 1 intact", n2 > n1 and b.compte(3) == a2, f"nouveau {n1} -> {n2}, bleb 1 {b.compte(3)}")
+    n0 = b.page.evaluate("window.values.length")
+    b.fr.evaluate("document.getElementById('evalSave').click()")          # 3 blebs au lieu des 2 comptés en phase 1 :
+    check("7. écart avec le comptage de phase 1 signalé", "vous avez compté" in b.message(), b.message()[:60])
+    b.fr.evaluate("document.getElementById('evalSave').click()")          # second clic = confirmation
+    b.page.wait_for_function(f"window.values.length > {n0} && window.values[window.values.length-1].save")
+    val = b.page.evaluate("window.values[window.values.length-1]")
+    check("7. valeur enregistrée : Bleb 1 avec toutes ses retouches, nouveau bleb avec tout son dessin",
+          val["verdicts"].get("3") == "retouche" and val["counts"].get("3") == a2 and val["counts"].get(str(nouveau)) == n2, f"{val['verdicts']} {val['counts']}")
     check("aucune erreur JavaScript", not b.errors, str(b.errors))
 print(f"\n{sum(OK)}/{len(OK)} vérifications réussies")
 raise SystemExit(0 if all(OK) else 1)
