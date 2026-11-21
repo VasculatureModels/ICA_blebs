@@ -521,6 +521,30 @@ def test_glob_identifier_without_global_playlist_is_blocked():
         assert not (w.root / "sorties" / "notes_libres.csv").exists()
 
 
+def _backup_targets(observer):
+    """Passation d'un cas « 0 bleb » avec une sauvegarde UNCloud injoignable : renvoie le message d'échec,
+    qui nomme chaque fichier par son chemin distant (relatif au dossier des résultats de l'étude)."""
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.secrets["nextcloud"] = {"url": "http://127.0.0.1:9", "share_token": "jeton_de_test"}   # port fermé : échec immédiat
+    at.run()                                                  # (les secrets doivent être posés avant le premier run)
+    at.sidebar.text_input[0].set_value(observer).run()
+    button(at, "Démarrer le test").click().run()
+    _CLICK[0] += 1                                            # comme answer(at, 0), mais on lit la page juste après
+    at.session_state["_test_viewer_value"] = {"n_blebs": 0, "save": _CLICK[0]}
+    at.run()                                                  # (le message s'affiche au rechargement qui suit l'enregistrement)
+    return " ".join(w.value for w in at.warning if "Sauvegarde distante" in w.value)
+
+
+def test_remote_backup_puts_free_identifiers_under_libres():
+    """Sauvegarde distante (21/11/2026) : un identifiant hors étude arrive sous libres/, un observateur de l'étude à la racine."""
+    sets = {"JB": ["C1__ICA_1", "J1__ICA_1"], "GG": ["C1__ICA_1", "G1__ICA_1"], "VL": ["C1__ICA_1", "V1__ICA_1"]}
+    with StudyWorkdir(sets):
+        msg = _backup_targets("TEST")
+        assert "libres/resultats_TEST_" in msg, msg
+        msg = _backup_targets("JB")
+        assert "resultats_JB_" in msg and "libres/" not in msg, msg
+
+
 def test_study_identifier_is_not_a_free_identifier():
     with StudyWorkdir({"JB": ["C1__ICA_1"], "GG": ["G1__ICA_1"], "VL": ["V1__ICA_1"]}):
         at = new_app("jb")
