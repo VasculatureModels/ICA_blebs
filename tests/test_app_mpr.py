@@ -536,13 +536,15 @@ def _backup_targets(observer):
 
 
 def test_remote_backup_puts_free_identifiers_under_libres():
-    """Sauvegarde distante (21/11/2026) : un identifiant hors étude arrive sous libres/, un observateur de l'étude à la racine."""
+    """Sauvegarde distante (21/11/2026) : CSV et masque final de chaque cas, y compris un cas « 0 bleb » (phase 2 ignorée) ;
+    un identifiant hors étude arrive sous libres/, un observateur de l'étude à la racine."""
     sets = {"JB": ["C1__ICA_1", "J1__ICA_1"], "GG": ["C1__ICA_1", "G1__ICA_1"], "VL": ["C1__ICA_1", "V1__ICA_1"]}
     with StudyWorkdir(sets):
         msg = _backup_targets("TEST")
         assert "libres/resultats_TEST_" in msg, msg
+        assert "libres/corrections_TEST_" in msg and "_blebs_corrige.nii.gz" in msg, msg   # masque du cas « 0 bleb »
         msg = _backup_targets("JB")
-        assert "resultats_JB_" in msg and "libres/" not in msg, msg
+        assert "resultats_JB_" in msg and "corrections_JB_" in msg and "libres/" not in msg, msg
 
 
 def test_study_identifier_is_not_a_free_identifier():
