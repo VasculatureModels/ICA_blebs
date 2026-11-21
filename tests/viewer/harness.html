@@ -1,0 +1,11 @@
+<!DOCTYPE html><html><body style="margin:0">
+<iframe id="f" src="/mpr_viewer/index.html" style="width:1400px;height:850px;border:0"></iframe>
+<script>
+window.values = []; window.ready = false;
+window.addEventListener("message", (ev) => {
+  const d = ev.data || {};
+  if (d.type === "streamlit:componentReady") window.ready = true;
+  if (d.type === "streamlit:setComponentValue") window.values.push(d.value);
+});
+window.render = (args) => document.getElementById("f").contentWindow.postMessage({ type: "streamlit:render", args }, "*");
+</script></body></html>
