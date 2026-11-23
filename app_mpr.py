@@ -785,7 +785,10 @@ if save_id and ready and st.session_state.get(save_key) != save_id:  # un clic s
         to_send = [save_final_csv(observer, run_id, playlist, load_ratings(observer, run_id))]
         if extra.get("fichier_correction_nifti"):
             to_send.append(Path(extra["fichier_correction_nifti"]))
-        errs = [f"{n} : {m}" for n, ok, m in rt.backup_files(to_send, RESULTS_DIR, backup_cfg) if not ok]
+        if skip_next and skipped.get("fichier_correction_nifti"):   # « 0 bleb » : le masque sans bleb part aussi
+            to_send.append(Path(skipped["fichier_correction_nifti"]))
+        # chemins relatifs au dossier des résultats de l'étude : les identifiants hors étude arrivent sous « libres/ »
+        errs = [f"{n} : {m}" for n, ok, m in rt.backup_files(to_send, STUDY_RESULTS_DIR, backup_cfg) if not ok]
         if errs:
             st.session_state["flash"] = st.session_state.get("flash", []) + [("warning", "Sauvegarde distante : " + " ; ".join(errs))]
     st.rerun()
